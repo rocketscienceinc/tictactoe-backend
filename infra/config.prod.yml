@@ -1,0 +1,5 @@
+ENVIRONMENT: prod
+
+http_port: 80
+
+socket_port: 9090
