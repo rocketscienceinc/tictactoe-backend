@@ -1,0 +1,7 @@
+environment: local
+
+log-lever: info
+
+http-port: "8080"
+
+socket-port: "9090"
