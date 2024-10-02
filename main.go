@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/config"
 	"log/slog"
 	"os"
 	"path/filepath"
 
 	app "github.com/rocketscienceinc/tittactoe-backend/internal"
+	"github.com/rocketscienceinc/tittactoe-backend/internal/config"
 )
 
 // main - is the entry point of the application. It initializes the configuration, logger, and runs the application.
@@ -23,7 +23,7 @@ func main() {
 	logger := initLogger(conf)
 
 	if err := app.RunApp(logger, conf); err != nil {
-		panic(fmt.Errorf("app run failed: %v", err))
+		panic(fmt.Errorf("app run failed: %w", err))
 	}
 }
 
@@ -31,7 +31,7 @@ func main() {
 func initConfig() *config.Config {
 	baseDir, err := os.Getwd()
 	if err != nil {
-		panic(fmt.Errorf("failed to get current directory: %v", err))
+		panic(fmt.Errorf("failed to get current directory: %w", err))
 	}
 
 	return config.MustLoad(filepath.Join(baseDir, "./config.yml"))

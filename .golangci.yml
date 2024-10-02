@@ -1,0 +1,71 @@
+issues:
+  exclude-rules:
+    # Exclude some linters from running on tests files.
+    - path: _test\.go
+      linters:
+        - goerr113  # do not define dynamic errors, use wrapped static errors instead; we can use dynamic errors in tests
+        - lll  # line is too long; we can use long lines in tests
+        - funlen # function is too long; we can use long functions in tests
+
+
+linters-settings:
+  tagliatelle:
+    case:
+      rules:
+        yaml: kebab
+  govet:
+    enable:
+      - loopclosure
+  varnamelen:
+    min-name-length: 2
+    max-distance: 20
+  nlreturn:
+    # Size of the block (including return statement that is still "OK")
+    # so no return split required.
+    # Default: 1
+    block-size: 2
+  goimports:
+    local-prefixes: "service"
+  wsl:
+    force-err-cuddling: true
+  nolintlint:
+    require-explanation: true
+    require-specific: true
+  lll:
+    # Max line length, lines longer will be reported.
+    # '\t' is counted as 1 character by default, and can be changed with the tab-width option.
+    # Default: 120.
+    line-length: 160
+  gci:
+    sections:
+      - standard
+      - default
+      - prefix(github.com/rocketscienceinc/tictactoe-backend/)
+    skip-generated: false
+    custom-order: true
+  gosec:
+    excludes:
+      - G115
+
+linters:
+  enable-all: true
+  disable:
+    - paralleltest
+    - ireturn
+    - gochecknoglobals
+    - depguard
+    - exhaustruct
+    - tagliatelle
+    - tagalign
+    - godox
+    - testpackage
+    - funlen
+    - wsl
+    - nlreturn
+    - execinquery
+    - gomnd
+    - exportloopref
+    - mnd
+
+run:
+  issues-exit-code: 1
