@@ -16,14 +16,17 @@ func RunApp(logger *slog.Logger, conf *config.Config) error {
 	// run http server.
 	go func() {
 		log.Info("Starting HTTP server on ", "port:", conf.HTTPPort)
-		if err := server.StartHTTPServer(conf); err != nil {
+		if err := server.StartHTTPServer(conf.HTTPPort); err != nil {
 			panic(fmt.Errorf("failed to start HTTP server: %w", err))
 		}
 	}()
 
 	// run Websocket server.
 	log.Info("Starting WebSocket server on  ", "port:", conf.SocketPort)
-	if err := socket.StartSocketServer(logger, conf.SocketPort); err != nil {
+
+	wsServer := socket.New(logger)
+
+	if err := wsServer.Start(conf.SocketPort); err != nil {
 		return fmt.Errorf("failed to start socket server: %w", err)
 	}
 
