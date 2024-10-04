@@ -7,7 +7,6 @@ import (
 )
 
 type Config struct {
-	Env        string `yaml:"environment"`
 	LogLevel   string `yaml:"log-level" env-default:"info"`
 	HTTPPort   string `yaml:"http-port" env-default:"8080"`
 	SocketPort string `yaml:"socket-port" env-default:"9090"`
