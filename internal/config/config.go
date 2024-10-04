@@ -18,7 +18,7 @@ func MustLoad(path string) *Config {
 	config := &Config{}
 
 	if err := cleanenv.ReadConfig(path, config); err != nil {
-		panic(fmt.Errorf("unable to load config file: %s", err))
+		panic(fmt.Errorf("unable to load config file: %w", err))
 	}
 
 	return config
