@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha1" //nolint: gosec // idk how to fix that
 	"encoding/base64"
+	"math/big"
 )
 
 // Static GUID defined in RFC 6455 for WebSocket.
@@ -26,4 +27,13 @@ func GenerateNewSessionID() string {
 	}
 
 	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// GenerateGameID - generates a unique identifier for the room.
+func GenerateGameID() string {
+	n, err := rand.Int(rand.Reader, big.NewInt(99999999))
+	if err != nil {
+		return ""
+	}
+	return n.String()
 }

@@ -2,7 +2,7 @@ package socket
 
 import (
 	"bufio"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -21,11 +21,12 @@ func New(logger *slog.Logger) *Server {
 	}
 
 	server.handlers["connect"] = server.handleConnect
+	server.handlers["game:new"] = server.handleNewGame
+	server.handlers["game:join"] = server.handleJoinGame
+	server.handlers["game:turn"] = server.handleTurn
 
 	return server
 }
-
-var ErrUnknownAction = errors.New("unknown action")
 
 // Start - starts WebSocket server.
 func (that *Server) Start(port string) error {
@@ -57,7 +58,7 @@ func (that *Server) upgradeToWebSocket(writer http.ResponseWriter, req *http.Req
 		return
 	}
 
-	that.handleSessionCookie(writer, req, log)
+	that.setSessionCookie(writer, req, log)
 
 	key := req.Header.Get("Sec-WebSocket-Key")
 	acceptKey := GenerateAcceptKey(key)
@@ -88,10 +89,47 @@ func (that *Server) upgradeToWebSocket(writer http.ResponseWriter, req *http.Req
 	}
 }
 
-// processMessage - processes incoming messages from the client.
-func (that *Server) processMessage(msg *Message, bufrw *bufio.ReadWriter) error {
-	if handler, ok := that.handlers[msg.Action]; ok {
-		return handler(msg, bufrw)
+// HandleMessages - processes messages from the client.
+func (that *Server) HandleMessages(bufrw *bufio.ReadWriter) error {
+	log := that.logger.With("method", "HandleMessages")
+
+	for {
+		msg, err := that.readMessage(bufrw)
+		if err != nil {
+			log.Error("error reading message", "error", err)
+			return err
+		}
+
+		var message Message
+		if err := json.Unmarshal(msg, &message); err != nil {
+			log.Error("failed to unmarshal message", "error", err)
+			continue
+		}
+
+		handler, ok := that.handlers[message.Action]
+		if !ok {
+			log.Error("error processing message", "error", err)
+		}
+
+		if err := handler(&message, bufrw); err != nil {
+			log.Error("error processing message", "error", err)
+		}
 	}
-	return fmt.Errorf("%w: %s", ErrUnknownAction, msg.Action)
+}
+
+// setSessionCookie - handles user session.
+func (that *Server) setSessionCookie(writer http.ResponseWriter, req *http.Request, log *slog.Logger) {
+	cookie, err := req.Cookie("user_session")
+	if err != nil {
+		cookie = &http.Cookie{
+			Name:    "user_session",
+			Value:   GenerateNewSessionID(),
+			Expires: time.Now().Add(24 * time.Hour),
+			Path:    "/ws",
+		}
+		http.SetCookie(writer, cookie)
+		log.Info("session cookie not found, new one created", "cookie", cookie.Value)
+	} else {
+		log.Info("session cookie found", "cookie", cookie.Value)
+	}
 }

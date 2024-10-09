@@ -3,54 +3,18 @@ package socket
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log/slog"
-	"net/http"
-	"time"
 )
 
-// handleSessionCookie - handles user session.
-func (that *Server) handleSessionCookie(writer http.ResponseWriter, req *http.Request, log *slog.Logger) {
-	cookie, err := req.Cookie("user_session")
-	if err != nil {
-		cookie = &http.Cookie{
-			Name:    "user_session",
-			Value:   GenerateNewSessionID(),
-			Expires: time.Now().Add(24 * time.Hour),
-			Path:    "/ws",
-		}
-		http.SetCookie(writer, cookie)
-		log.Info("session cookie not found, new one created", "cookie", cookie.Value)
-	} else {
-		log.Info("session cookie found", "cookie", cookie.Value)
-	}
-}
+var (
+	ErrNotYourTurn  = errors.New("not your turn")
+	ErrCellOccupied = errors.New("cell occupied")
+)
 
-// HandleMessages - processes messages from the client.
-func (that *Server) HandleMessages(bufrw *bufio.ReadWriter) error {
-	log := that.logger.With("method", "HandleMessages")
-
-	for {
-		msg, err := that.readMessage(bufrw)
-		if err != nil {
-			log.Error("error reading message", "error", err)
-			return err
-		}
-
-		var message Message
-		if err := json.Unmarshal(msg, &message); err != nil {
-			log.Error("failed to unmarshal message", "error", err)
-			continue
-		}
-
-		if err := that.processMessage(&message, bufrw); err != nil {
-			log.Error("error processing message", "error", err)
-		}
-	}
-}
-
+// handleConnect - handles create or connect player.
 func (that *Server) handleConnect(msg *Message, bufrw *bufio.ReadWriter) error {
-	var payload PlayerPayload
+	var payload ResponsePayload
 
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 		return fmt.Errorf("failed to unmarshal player info: %w", err)
@@ -61,7 +25,7 @@ func (that *Server) handleConnect(msg *Message, bufrw *bufio.ReadWriter) error {
 	if payload.Player.ID == "" {
 		newPlayerID := GenerateNewSessionID()
 		responsePayload = ResponsePayload{
-			Player: PlayerInfo{
+			Player: &Player{
 				ID: newPlayerID,
 			},
 			Game: nil,
@@ -70,7 +34,7 @@ func (that *Server) handleConnect(msg *Message, bufrw *bufio.ReadWriter) error {
 		that.logger.Info("registering new player", "player_id", newPlayerID)
 	} else {
 		responsePayload = ResponsePayload{
-			Player: PlayerInfo{
+			Player: &Player{
 				ID: payload.Player.ID,
 			},
 			Game: nil,
@@ -82,4 +46,148 @@ func (that *Server) handleConnect(msg *Message, bufrw *bufio.ReadWriter) error {
 	}
 
 	return nil
+}
+
+// handleNewGame - handles creation of a new game.
+func (that *Server) handleNewGame(msg *Message, bufrw *bufio.ReadWriter) error {
+	var payload ResponsePayload
+
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal player info: %w", err)
+	}
+
+	newGame := NewGame(GenerateGameID())
+
+	games[newGame.ID] = newGame
+
+	player := Player{
+		ID:   payload.Player.ID,
+		Mark: "X",
+	}
+	if err := newGame.JoinPlayer(player); err != nil {
+		return fmt.Errorf("failed to join player: %w", err)
+	}
+
+	responsePayload := ResponsePayload{
+		Player: nil,
+		Game: &Game{
+			ID:      newGame.ID,
+			Board:   newGame.Board,
+			Turn:    newGame.Turn,
+			Winner:  newGame.Winner,
+			Status:  newGame.Status,
+			Players: newGame.Players,
+		},
+	}
+
+	if err := that.sendMessage(*bufrw, msg.Action, responsePayload); err != nil {
+		return fmt.Errorf("failed to send response: %w", err)
+	}
+
+	return nil
+}
+
+// handleJoinGame - handles join of game.
+func (that *Server) handleJoinGame(msg *Message, bufrw *bufio.ReadWriter) error {
+	var payload JoinGamePayload
+
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal join game payload: %w", err)
+	}
+
+	game, err := FindGameByID(payload.Room.ID)
+	if err != nil {
+		return fmt.Errorf("failed to find game: %w", err)
+	}
+
+	player := Player{
+		ID:   payload.Player.ID,
+		Mark: "O",
+	}
+	if err := game.JoinPlayer(player); err != nil {
+		return fmt.Errorf("failed to join player: %w", err)
+	}
+
+	responsePayload := ResponsePayload{
+		Player: nil,
+		Game: &Game{
+			ID:      game.ID,
+			Board:   game.Board,
+			Turn:    game.Turn,
+			Winner:  game.Winner,
+			Status:  game.Status,
+			Players: game.Players,
+		},
+	}
+
+	if err := that.sendMessage(*bufrw, msg.Action, responsePayload); err != nil {
+		return fmt.Errorf("failed to send response: %w", err)
+	}
+
+	return nil
+}
+
+// handleTurn - handles player's turn and calculates the winner.
+func (that *Server) handleTurn(msg *Message, bufrw *bufio.ReadWriter) error {
+	var payload TurnPayload
+
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal turn payload: %w", err)
+	}
+
+	game, err := FindGameByID(payload.Game.ID)
+	if err != nil {
+		return fmt.Errorf("failed to find game: %w", err)
+	}
+
+	var currentPlayer Player
+	for _, player := range game.Players {
+		if player.ID == payload.Player.ID {
+			currentPlayer = player
+			break
+		}
+	}
+
+	if game.Turn != currentPlayer.Mark {
+		return fmt.Errorf("%w: %s", ErrNotYourTurn, currentPlayer.Mark)
+	}
+
+	if game.Board[payload.Cell] != "" {
+		return ErrCellOccupied
+	}
+
+	game.Board[payload.Cell] = currentPlayer.Mark
+
+	that.updateGameStatus(game)
+
+	responsePayload := ResponsePayload{
+		Player: nil,
+		Game: &Game{
+			ID:     game.ID,
+			Board:  game.Board,
+			Turn:   game.Turn,
+			Winner: game.Winner,
+			Status: game.Status,
+		},
+	}
+
+	if err := that.sendMessage(*bufrw, msg.Action, responsePayload); err != nil {
+		return fmt.Errorf("failed to send response: %w", err)
+	}
+
+	return nil
+}
+
+func (that *Server) updateGameStatus(game *Game) {
+	winner, isFull := checkGameStatus(game.Board)
+	switch {
+	case winner != "":
+		game.Winner = winner
+		game.Status = "finished"
+	case isFull:
+		game.Winner = "-"
+		game.Status = "finished"
+	default:
+		game.Turn = toggleMark(game.Turn)
+	}
 }
