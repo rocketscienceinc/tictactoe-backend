@@ -8,30 +8,44 @@ type Message struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
-// PlayerInfo holds information about a player in the game.
-type PlayerInfo struct {
+type ResponsePayload struct {
+	Player *Player `json:"player,omitempty"`
+	Game   *Game   `json:"game,omitempty"`
+}
+
+type JoinGamePayload struct {
+	Player struct {
+		ID string `json:"id"`
+	} `json:"player"`
+	Room struct {
+		ID string `json:"id"`
+	} `json:"room"`
+}
+
+type TurnPayload struct {
+	Player struct {
+		ID string `json:"id"`
+	} `json:"player"`
+	Game struct {
+		ID string `json:"id"`
+	} `json:"game"`
+	Cell int `json:"cell"`
+}
+
+// Player holds information about a player in the game.
+type Player struct {
 	ID   string `json:"id"`
 	Mark string `json:"mark,omitempty"`
 }
 
 // Game represents the state of the game, including the board, current turn, and status.
 type Game struct {
-	ID     string   `json:"id"`
-	Board  []string `json:"board"`
-	Turn   string   `json:"turn"`
-	Winner string   `json:"winner"`
-	Status string   `json:"status"`
-}
-
-type ResponsePayload struct {
-	Player PlayerInfo `json:"player"`
-	Game   *Game      `json:"game,omitempty"`
-}
-
-type PlayerPayload struct {
-	Player struct {
-		ID string `json:"id"`
-	} `json:"player"`
+	ID      string    `json:"id"`
+	Board   [9]string `json:"board"`
+	Turn    string    `json:"turn"`
+	Winner  string    `json:"winner"`
+	Status  string    `json:"status"`
+	Players []Player  `json:"players,omitempty"`
 }
 
 // frame represents a WebSocket frame and its metadata.
