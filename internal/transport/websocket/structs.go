@@ -1,4 +1,4 @@
-package socket
+package websocket
 
 import "encoding/json"
 
@@ -8,8 +8,8 @@ type Message struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
-// PlayerInfo holds information about a player in the game.
-type PlayerInfo struct {
+// Player holds information about a player in the game.
+type Player struct {
 	ID   string `json:"id"`
 	Mark string `json:"mark,omitempty"`
 }
@@ -24,14 +24,8 @@ type Game struct {
 }
 
 type ResponsePayload struct {
-	Player PlayerInfo `json:"player"`
-	Game   *Game      `json:"game,omitempty"`
-}
-
-type PlayerPayload struct {
-	Player struct {
-		ID string `json:"id"`
-	} `json:"player"`
+	Player *Player `json:"player"`
+	Game   *Game   `json:"game,omitempty"`
 }
 
 // frame represents a WebSocket frame and its metadata.
