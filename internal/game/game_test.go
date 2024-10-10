@@ -9,7 +9,7 @@ import (
 
 func TestNewGame(t *testing.T) {
 	// When: create a new game instance
-	game := NewGame()
+	game := NewGame("000")
 
 	// Then: the game should have the expected initial state
 	expectedGame := Game{
@@ -17,6 +17,10 @@ func TestNewGame(t *testing.T) {
 		Turn:   playerX,
 		Winner: "",
 		Status: statusOngoing,
+		Player: &Player{
+			ID:   "000",
+			Mark: "X",
+		},
 	}
 
 	// Then: the game instance should not be nil
@@ -29,7 +33,7 @@ func TestNewGame(t *testing.T) {
 func TestGame_MakeMove(t *testing.T) {
 	t.Run("MakeMove", func(t *testing.T) {
 		// Given: We have a new game
-		game := NewGame()
+		game := NewGame("000")
 
 		// When: Players make their moves
 		err := game.MakeMove(playerX, 0)
@@ -41,6 +45,10 @@ func TestGame_MakeMove(t *testing.T) {
 			Turn:   playerO,
 			Winner: "",
 			Status: statusOngoing,
+			Player: &Player{
+				ID:   "000",
+				Mark: "X",
+			},
 		}
 
 		// Then: the game instance should not be nil
@@ -52,7 +60,7 @@ func TestGame_MakeMove(t *testing.T) {
 
 	t.Run("Error on cell already occupied", func(t *testing.T) {
 		// Given: A new game instance
-		game := NewGame()
+		game := NewGame("000")
 
 		err := game.MakeMove(playerX, 0)
 		require.NoError(t, err)
@@ -63,6 +71,10 @@ func TestGame_MakeMove(t *testing.T) {
 			Turn:   playerO,
 			Winner: "",
 			Status: statusOngoing,
+			Player: &Player{
+				ID:   "000",
+				Mark: "X",
+			},
 		}
 
 		// When: player O tries to move to the same occupied cell
@@ -77,7 +89,7 @@ func TestGame_MakeMove(t *testing.T) {
 
 	t.Run("Error on playing out of turn", func(t *testing.T) {
 		// Given: A new game instance
-		game := NewGame()
+		game := NewGame("000")
 
 		// When: player O tries to make a move before player X
 		err := game.MakeMove("O", 1)
@@ -91,6 +103,10 @@ func TestGame_MakeMove(t *testing.T) {
 			Turn:   playerX,
 			Winner: "",
 			Status: statusOngoing,
+			Player: &Player{
+				ID:   "000",
+				Mark: "X",
+			},
 		}
 
 		require.Equal(t, expectedGame, *game)
@@ -98,7 +114,7 @@ func TestGame_MakeMove(t *testing.T) {
 
 	t.Run("Invalid Cell", func(t *testing.T) {
 		// Given: A new game instance
-		game := NewGame()
+		game := NewGame("000")
 
 		// When: an invalid cell index is passed (outside the board range)
 		err := game.MakeMove(playerX, 20)
@@ -109,7 +125,7 @@ func TestGame_MakeMove(t *testing.T) {
 
 	t.Run("Invalid Negative Cell", func(t *testing.T) {
 		// Given: A new game instance
-		game := NewGame()
+		game := NewGame("000")
 
 		// When: A negative cell index is passed
 		err := game.MakeMove(playerX, -1)
@@ -120,7 +136,7 @@ func TestGame_MakeMove(t *testing.T) {
 
 	t.Run("Move After Game Finished", func(t *testing.T) {
 		// Given: A game where X has already won
-		game := NewGame()
+		game := NewGame("000")
 		game.Board = [9]string{playerX, playerX, playerX, emptyCell, playerO, emptyCell, emptyCell, playerO, emptyCell}
 		game.Status = statusFinished
 
@@ -133,7 +149,7 @@ func TestGame_MakeMove(t *testing.T) {
 
 	t.Run("Move After Tie", func(t *testing.T) {
 		// Given: A game that ended in a tie
-		game := NewGame()
+		game := NewGame("000")
 		game.Board = [9]string{playerO, playerX, playerO, playerO, playerX, playerX, playerX, playerO, playerO}
 		game.Status = statusFinished
 		game.Winner = playerTie
@@ -149,7 +165,7 @@ func TestGame_MakeMove(t *testing.T) {
 func TestGame_checkGameStatus(t *testing.T) {
 	t.Run("Winner X", func(t *testing.T) {
 		// Given: a game where player X has a winning combination
-		game := NewGame()
+		game := NewGame("000")
 
 		game.Board = [9]string{playerX, playerO, emptyCell, playerX, playerO, emptyCell, playerX, emptyCell, emptyCell}
 
@@ -162,7 +178,7 @@ func TestGame_checkGameStatus(t *testing.T) {
 
 	t.Run("Turn", func(t *testing.T) {
 		// Given: a game where no player has won yet
-		game := NewGame()
+		game := NewGame("000")
 		game.Board = [9]string{playerX, playerO, playerX, emptyCell, playerO, emptyCell, playerX, emptyCell, emptyCell}
 
 		// When: checking the game status
@@ -174,7 +190,7 @@ func TestGame_checkGameStatus(t *testing.T) {
 
 	t.Run("Tie", func(t *testing.T) {
 		// Given: a game that ended in a tie
-		game := NewGame()
+		game := NewGame("000")
 		game.Board = [9]string{playerO, playerX, playerO, playerO, playerX, playerX, playerX, playerO, playerX}
 
 		// When: checking the game status

@@ -31,19 +31,16 @@ var (
 	}
 )
 
-type Game struct {
-	Board  [9]string
-	Turn   string
-	Winner string
-	Status string
-}
-
-func NewGame() *Game {
+func NewGame(playerID string) *Game {
 	return &Game{
 		Turn:   playerX,
 		Status: statusOngoing,
 		Board:  [9]string{},
 		Winner: "",
+		Player: &Player{
+			ID:   playerID,
+			Mark: playerX,
+		},
 	}
 }
 
