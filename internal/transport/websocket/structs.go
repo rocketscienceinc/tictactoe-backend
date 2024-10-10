@@ -1,6 +1,10 @@
 package websocket
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/rocketscienceinc/tittactoe-backend/internal/game"
+)
 
 // Message represents a WebSocket message with an action type and a payload.
 type Message struct {
@@ -8,24 +12,17 @@ type Message struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
-// Player holds information about a player in the game.
-type Player struct {
-	ID   string `json:"id"`
-	Mark string `json:"mark,omitempty"`
-}
-
-// Game represents the state of the game, including the board, current turn, and status.
-type Game struct {
-	ID     string   `json:"id"`
-	Board  []string `json:"board"`
-	Turn   string   `json:"turn"`
-	Winner string   `json:"winner"`
-	Status string   `json:"status"`
-}
-
 type ResponsePayload struct {
-	Player *Player `json:"player"`
-	Game   *Game   `json:"game,omitempty"`
+	Player *game.Player  `json:"player"`
+	Game   *GameResponse `json:"game,omitempty"`
+}
+
+type GameResponse struct {
+	ID     string    `json:"id"`
+	Board  [9]string `json:"board"`
+	Turn   string    `json:"turn"`
+	Winner string    `json:"winner"`
+	Status string    `json:"status"`
 }
 
 // frame represents a WebSocket frame and its metadata.

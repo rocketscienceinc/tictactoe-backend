@@ -10,11 +10,20 @@ type Config struct {
 	LogLevel   string `yaml:"log-level" env-default:"info"`
 	HTTPPort   string `yaml:"http-port" env-default:"8080"`
 	SocketPort string `yaml:"socket-port" env-default:"9090"`
+	Redis      Redis  `yaml:"redis"`
+	RedisAddr  string `yaml:"redis-addr"`
+}
+
+type Redis struct {
+	Host string `yaml:"host" env-default:"localhost"`
+	Port string `yaml:"port" env-default:"6379"`
 }
 
 // MustLoad - load all configurations in config.yml file.
 func MustLoad(path string) *Config {
 	config := &Config{}
+
+	config.RedisAddr = fmt.Sprintf("%s:%s", config.Redis.Host, config.Redis.Port)
 
 	if err := cleanenv.ReadConfig(path, config); err != nil {
 		panic(fmt.Errorf("unable to load config file: %w", err))
