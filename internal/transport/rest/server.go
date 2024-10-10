@@ -1,16 +1,14 @@
-package server
+package rest
 
 import (
 	"fmt"
 	"net/http"
 	"time"
-
-	"github.com/rocketscienceinc/tittactoe-backend/pkg/handlers"
 )
 
-func StartHTTPServer(port string) error {
+func Start(port string) error {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ping", handlers.PingHandler)
+	mux.HandleFunc("/ping", pingHandler)
 
 	srv := &http.Server{
 		Addr:         ":" + port,
