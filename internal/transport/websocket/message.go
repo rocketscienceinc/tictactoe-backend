@@ -1,4 +1,4 @@
-package socket
+package websocket
 
 import (
 	"bufio"
@@ -77,7 +77,7 @@ func writeFrame(bufrw bufio.ReadWriter, frameData frame) error {
 	return nil
 }
 
-func (that *Server) readMessage(bufrw *bufio.ReadWriter) ([]byte, error) {
+func (that *Server) readRequest(bufrw *bufio.ReadWriter) ([]byte, error) {
 	header, err := that.readHeader(*bufrw)
 	if err != nil {
 		return nil, err
