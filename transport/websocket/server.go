@@ -9,30 +9,38 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/rocketscienceinc/tittactoe-backend/internal/game"
+	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
+	"github.com/rocketscienceinc/tittactoe-backend/internal/pkg"
 )
 
-type redis interface {
-	GetOrCreatePlayer(ctx context.Context, sessionID string) (*game.Player, error)
-	GetActiveGame(ctx context.Context, gameID string) (*game.Game, error)
-	SaveGame(ctx context.Context, gameID string, game *game.Game) error
+type uGame interface {
+	GetOrCreatePlayer(ctx context.Context, id string) (*entity.Player, error)
+	GetOrCreateGame(ctx context.Context, id string) (*entity.Game, error)
+
+	ConnectToGame(ctx context.Context, gameID, playerID string) (*entity.Game, error)
+
+	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
 
 type Server struct {
-	logger   *slog.Logger
-	redis    redis
+	logger *slog.Logger
+	uGame  uGame
+
 	handlers map[string]func(ctx context.Context, message *Message, writer *bufio.ReadWriter) error
 }
 
-func New(logger *slog.Logger, redis redis) *Server {
+func New(logger *slog.Logger, uGame uGame) *Server {
 	server := &Server{
-		logger:   logger,
+		logger: logger,
+		uGame:  uGame,
+
 		handlers: make(map[string]func(context.Context, *Message, *bufio.ReadWriter) error),
-		redis:    redis,
 	}
 
 	server.handlers["connect"] = server.handleConnect
 	server.handlers["game:new"] = server.handleNewGame
+	server.handlers["game:join"] = server.handleJoinGame
+	server.handlers["game:turn"] = server.handleGameTurn
 
 	return server
 }
@@ -67,10 +75,10 @@ func (that *Server) upgradeToWebSocket(ctx context.Context, writer http.Response
 		return
 	}
 
-	that.setSessionCookie(writer, req, log)
+	that.setSessionCookie(writer, req)
 
 	key := req.Header.Get("Sec-WebSocket-Key")
-	acceptKey := GenerateAcceptKey(key)
+	acceptKey := pkg.GenerateAcceptKey(key)
 
 	writer.Header().Set("Upgrade", "websocket")
 	writer.Header().Set("Connection", "Upgrade")
@@ -93,7 +101,7 @@ func (that *Server) upgradeToWebSocket(ctx context.Context, writer http.Response
 
 	log.Info("WebSocket connection established")
 
-	if err := that.handleMessages(ctx, bufrw); err != nil {
+	if err = that.handleMessages(ctx, bufrw); err != nil {
 		log.Error("error handling messages", "error", err)
 	}
 }
@@ -110,7 +118,7 @@ func (that *Server) handleMessages(ctx context.Context, bufrw *bufio.ReadWriter)
 		}
 
 		var message Message
-		if err := json.Unmarshal(reqBody, &message); err != nil {
+		if err = json.Unmarshal(reqBody, &message); err != nil {
 			log.Error("failed to unmarshal message", "error", err)
 			continue
 		}
@@ -121,19 +129,21 @@ func (that *Server) handleMessages(ctx context.Context, bufrw *bufio.ReadWriter)
 			continue
 		}
 
-		if err := handler(ctx, &message, bufrw); err != nil {
+		if err = handler(ctx, &message, bufrw); err != nil {
 			log.Error("error processing message", "error", err)
 		}
 	}
 }
 
 // setSessionCookie - set user session.
-func (that *Server) setSessionCookie(writer http.ResponseWriter, req *http.Request, log *slog.Logger) {
+func (that *Server) setSessionCookie(writer http.ResponseWriter, req *http.Request) {
+	log := that.logger.With("method", "setSessionCookie")
+
 	cookie, err := req.Cookie("user_session")
 	if err != nil {
 		cookie = &http.Cookie{
 			Name:    "user_session",
-			Value:   GenerateNewSessionID(),
+			Value:   pkg.GenerateNewSessionID(),
 			Expires: time.Now().Add(24 * time.Hour),
 			Path:    "/ws",
 		}

@@ -11,7 +11,6 @@ type Config struct {
 	HTTPPort   string `yaml:"http-port" env-default:"8080"`
 	SocketPort string `yaml:"socket-port" env-default:"9090"`
 	Redis      Redis  `yaml:"redis"`
-	RedisAddr  string `yaml:"redis-addr"`
 }
 
 type Redis struct {
@@ -23,11 +22,13 @@ type Redis struct {
 func MustLoad(path string) *Config {
 	config := &Config{}
 
-	config.RedisAddr = fmt.Sprintf("%s:%s", config.Redis.Host, config.Redis.Port)
-
 	if err := cleanenv.ReadConfig(path, config); err != nil {
 		panic(fmt.Errorf("unable to load config file: %w", err))
 	}
 
 	return config
+}
+
+func (that *Redis) GetRedisAddr() string {
+	return fmt.Sprintf("%s:%s", that.Host, that.Port)
 }

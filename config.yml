@@ -3,3 +3,7 @@ log-lever: info
 http-port: "8080"
 
 socket-port: "9090"
+
+redis:
+  host: "localhost"
+  port: "6379"
