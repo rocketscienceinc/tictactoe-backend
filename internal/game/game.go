@@ -1,10 +1,16 @@
 package game
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+
+	"github.com/rocketscienceinc/tittactoe-backend/entity"
+)
 
 const (
 	statusFinished = "finished"
 	statusOngoing  = "ongoing"
+	statusWaiting  = "waiting"
 
 	playerTie = "-"
 	playerX   = "X"
@@ -31,53 +37,74 @@ var (
 	}
 )
 
-type Game struct {
-	Board  [9]string
-	Turn   string
-	Winner string
-	Status string
+type Game interface {
+	Create(id string) *entity.Game
+	MakeMove(game *entity.Game, player string, cell int) (*entity.Game, error)
 }
 
-func NewGame() *Game {
-	return &Game{
-		Turn:   playerX,
-		Status: statusOngoing,
-		Board:  [9]string{},
-		Winner: "",
+type game struct {
+	gameInstance entity.Game
+}
+
+func New(gameInstance entity.Game) Game {
+	return &game{
+		gameInstance: gameInstance,
 	}
 }
 
-func (that *Game) MakeMove(player string, cell int) error {
-	if that.Status == statusFinished {
-		return ErrGameFinished
+func (that *game) Create(id string) *entity.Game {
+	that.gameInstance.ID = id
+	that.gameInstance.Board = [9]string{emptyCell, emptyCell, emptyCell, emptyCell, emptyCell, emptyCell, emptyCell, emptyCell, emptyCell}
+	that.gameInstance.PlayerTurn = playerX
+	that.gameInstance.Status = statusWaiting
+
+	return &that.gameInstance
+}
+
+func (that *game) MakeMove(game *entity.Game, player string, cell int) (*entity.Game, error) {
+	if game.Status == statusFinished {
+		return nil, ErrGameFinished
 	}
 
-	if cell < 0 || cell >= len(that.Board) {
+	if err := validateMove(game, player, cell); err != nil {
+		return nil, fmt.Errorf("invalid move: %w", err)
+	}
+
+	game.Board[cell] = player
+	updateGameStatus(game, player)
+
+	return game, nil
+}
+
+// validateMove - checks if the move is valid.
+func validateMove(game *entity.Game, playerTurn string, cell int) error {
+	if cell < 0 || cell >= len(game.Board) {
 		return ErrInvalidCell
 	}
 
-	if that.Board[cell] != emptyCell {
+	if game.Board[cell] != emptyCell {
 		return ErrCellOccupied
 	}
 
-	if that.Turn != player {
+	if game.PlayerTurn != playerTurn {
 		return ErrNotYourTurn
 	}
 
-	that.Board[cell] = player
-
-	switch winner := checkGameStatus(that.Board); winner {
-	case playerX, playerO:
-		that.Winner = winner
-		that.Status = statusFinished
-	case playerTie:
-		that.Winner = playerTie
-		that.Status = statusFinished
-	default:
-		that.Turn = toggleMark(player)
-	}
-
 	return nil
+}
+
+// updateGameStatus - checks the game status after a move.
+func updateGameStatus(game *entity.Game, player string) {
+	switch winner := checkGameStatus(game.Board); winner {
+	case playerX, playerO:
+		game.Winner = winner
+		game.Status = statusFinished
+	case playerTie:
+		game.Winner = playerTie
+		game.Status = statusFinished
+	default:
+		game.PlayerTurn = toggleMark(player)
+	}
 }
 
 func toggleMark(currentMark string) string {
