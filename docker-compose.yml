@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   redis-stack:
     image: redis/redis-stack:latest
@@ -7,9 +5,3 @@ services:
     ports:
       - "6379:6379"
       - "8001:8001"
-    networks:
-      - redis-net
-
-networks:
-  redis-net:
-    driver: bridge
