@@ -8,7 +8,9 @@ import (
 
 func Start(port string) error {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ping", pingHandler)
+
+	// All endpoints should have a prefix /api, because our nginx will proxy all requests to /api to this service.
+	mux.HandleFunc("/api/ping", pingHandler)
 
 	srv := &http.Server{
 		Addr:         ":" + port,
