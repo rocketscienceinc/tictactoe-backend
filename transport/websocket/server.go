@@ -2,33 +2,53 @@ package websocket
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
+	"github.com/rocketscienceinc/tittactoe-backend/internal/pkg"
 )
 
-type Server struct {
-	logger   *slog.Logger
-	handlers map[string]func(message *Message, writer *bufio.ReadWriter) error
+type uGame interface {
+	GetOrCreatePlayer(ctx context.Context, id string) (*entity.Player, error)
+	GetOrCreateGame(ctx context.Context, id string) (*entity.Game, error)
+
+	ConnectToGame(ctx context.Context, gameID, playerID string) (*entity.Game, error)
+
+	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
 
-func New(logger *slog.Logger) *Server {
+type Server struct {
+	logger *slog.Logger
+	uGame  uGame
+
+	handlers map[string]func(ctx context.Context, message *Message, writer *bufio.ReadWriter) error
+}
+
+func New(logger *slog.Logger, uGame uGame) *Server {
 	server := &Server{
-		logger:   logger,
-		handlers: make(map[string]func(*Message, *bufio.ReadWriter) error),
+		logger: logger,
+		uGame:  uGame,
+
+		handlers: make(map[string]func(context.Context, *Message, *bufio.ReadWriter) error),
 	}
 
 	server.handlers["connect"] = server.handleConnect
+	server.handlers["game:new"] = server.handleNewGame
+	server.handlers["game:join"] = server.handleJoinGame
+	server.handlers["game:turn"] = server.handleGameTurn
 
 	return server
 }
 
 // Start - starts WebSocket server.
-func (that *Server) Start(port string) error {
+func (that *Server) Start(ctx context.Context, port string) error {
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		that.upgradeToWebSocket(w, r)
+		that.upgradeToWebSocket(ctx, w, r)
 	})
 
 	srv := &http.Server{
@@ -47,7 +67,7 @@ func (that *Server) Start(port string) error {
 }
 
 // upgradeToWebSocket - upgrades the connection to WebSocket.
-func (that *Server) upgradeToWebSocket(writer http.ResponseWriter, req *http.Request) {
+func (that *Server) upgradeToWebSocket(ctx context.Context, writer http.ResponseWriter, req *http.Request) {
 	log := that.logger.With("method", "upgradeConnection")
 
 	if req.Header.Get("Upgrade") != "websocket" {
@@ -55,10 +75,10 @@ func (that *Server) upgradeToWebSocket(writer http.ResponseWriter, req *http.Req
 		return
 	}
 
-	that.setSessionCookie(writer, req, log)
+	that.setSessionCookie(writer, req)
 
 	key := req.Header.Get("Sec-WebSocket-Key")
-	acceptKey := GenerateAcceptKey(key)
+	acceptKey := pkg.GenerateAcceptKey(key)
 
 	writer.Header().Set("Upgrade", "websocket")
 	writer.Header().Set("Connection", "Upgrade")
@@ -81,13 +101,13 @@ func (that *Server) upgradeToWebSocket(writer http.ResponseWriter, req *http.Req
 
 	log.Info("WebSocket connection established")
 
-	if err := that.handleMessages(bufrw); err != nil {
+	if err = that.handleMessages(ctx, bufrw); err != nil {
 		log.Error("error handling messages", "error", err)
 	}
 }
 
-// HandleMessages - processes messages from the client.
-func (that *Server) handleMessages(bufrw *bufio.ReadWriter) error {
+// handleMessages - processes messages from the client.
+func (that *Server) handleMessages(ctx context.Context, bufrw *bufio.ReadWriter) error {
 	log := that.logger.With("method", "HandleMessages")
 
 	for {
@@ -98,7 +118,7 @@ func (that *Server) handleMessages(bufrw *bufio.ReadWriter) error {
 		}
 
 		var message Message
-		if err := json.Unmarshal(reqBody, &message); err != nil {
+		if err = json.Unmarshal(reqBody, &message); err != nil {
 			log.Error("failed to unmarshal message", "error", err)
 			continue
 		}
@@ -109,19 +129,21 @@ func (that *Server) handleMessages(bufrw *bufio.ReadWriter) error {
 			continue
 		}
 
-		if err := handler(&message, bufrw); err != nil {
+		if err = handler(ctx, &message, bufrw); err != nil {
 			log.Error("error processing message", "error", err)
 		}
 	}
 }
 
 // setSessionCookie - set user session.
-func (that *Server) setSessionCookie(writer http.ResponseWriter, req *http.Request, log *slog.Logger) {
+func (that *Server) setSessionCookie(writer http.ResponseWriter, req *http.Request) {
+	log := that.logger.With("method", "setSessionCookie")
+
 	cookie, err := req.Cookie("user_session")
 	if err != nil {
 		cookie = &http.Cookie{
 			Name:    "user_session",
-			Value:   GenerateNewSessionID(),
+			Value:   pkg.GenerateNewSessionID(),
 			Expires: time.Now().Add(24 * time.Hour),
 			Path:    "/ws",
 		}
