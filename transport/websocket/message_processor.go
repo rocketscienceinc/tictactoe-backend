@@ -1,4 +1,4 @@
-package socket
+package websocket
 
 import (
 	"bufio"
@@ -6,7 +6,30 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+
+	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
 )
+
+// frame represents a WebSocket frame and its metadata.
+type frame struct {
+	isFin   bool   // Указывает, является ли этот фрейм последним в сообщении
+	opCode  byte   // Код операции, указывающий тип данных (например, текстовое сообщение, бинарные данные и т.д.)
+	length  uint64 // Длина полезной нагрузки (payload) фрейма
+	payload []byte // Данные, передаваемые в фрейме
+}
+
+// Message represents a WebSocket message with an action type and a payload.
+type Message struct {
+	Action  string          `json:"action"`
+	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
+type ResponsePayload struct {
+	Player *entity.Player `json:"player,omitempty"`
+	Game   *entity.Game   `json:"game,omitempty"`
+	Error  string         `json:"error,omitempty"`
+	Cell   int            `json:"cell,omitempty"`
+}
 
 func (that *Server) sendMessage(bufrw bufio.ReadWriter, action string, payload ResponsePayload) error {
 	response := Message{
@@ -25,7 +48,7 @@ func (that *Server) sendMessage(bufrw bufio.ReadWriter, action string, payload R
 		payload: responseBytes,
 	}
 
-	if err := writeFrame(bufrw, f); err != nil {
+	if err = writeFrame(bufrw, f); err != nil {
 		return fmt.Errorf("failed to write frame: %w", err)
 	}
 
@@ -70,20 +93,20 @@ func writeFrame(bufrw bufio.ReadWriter, frameData frame) error {
 		return fmt.Errorf("failed to write frame: %w", err)
 	}
 
-	if err := bufrw.Flush(); err != nil {
+	if err = bufrw.Flush(); err != nil {
 		return fmt.Errorf("failed to flush buffer: %w", err)
 	}
 
 	return nil
 }
 
-func (that *Server) readMessage(bufrw *bufio.ReadWriter) ([]byte, error) {
-	header, err := that.readHeader(*bufrw)
+func (that *Server) readRequest(bufrw *bufio.ReadWriter) ([]byte, error) {
+	header, err := readHeader(*bufrw)
 	if err != nil {
 		return nil, err
 	}
 
-	payload, err := that.readPayload(bufrw, header)
+	payload, err := readPayload(bufrw, header)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +114,7 @@ func (that *Server) readMessage(bufrw *bufio.ReadWriter) ([]byte, error) {
 	return payload, nil
 }
 
-func (that *Server) readHeader(bufrw bufio.ReadWriter) ([]byte, error) {
+func readHeader(bufrw bufio.ReadWriter) ([]byte, error) {
 	header := make([]byte, 2)
 	_, err := bufrw.Read(header)
 	if err != nil {
@@ -100,23 +123,23 @@ func (that *Server) readHeader(bufrw bufio.ReadWriter) ([]byte, error) {
 	return header, nil
 }
 
-func (that *Server) readPayload(bufrw *bufio.ReadWriter, header []byte) ([]byte, error) {
+func readPayload(bufrw *bufio.ReadWriter, header []byte) ([]byte, error) {
 	finBit := header[0] >> 7
 	opCode := header[0] & 0x0f
 	maskBit := header[1] >> 7
 	payloadLen := header[1] & 0x7f
 
-	size, _, err := that.readPayloadLength(*bufrw, payloadLen)
+	size, _, err := readPayloadLength(*bufrw, payloadLen)
 	if err != nil {
 		return nil, err
 	}
 
-	mask, err := that.readMask(*bufrw, maskBit)
+	mask, err := readMask(*bufrw, maskBit)
 	if err != nil {
 		return nil, err
 	}
 
-	payload, err := that.readData(*bufrw, size, mask)
+	payload, err := readData(*bufrw, size, mask)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +151,7 @@ func (that *Server) readPayload(bufrw *bufio.ReadWriter, header []byte) ([]byte,
 	return nil, nil
 }
 
-func (that *Server) readPayloadLength(bufrw bufio.ReadWriter, payloadLen byte) (uint64, int, error) {
+func readPayloadLength(bufrw bufio.ReadWriter, payloadLen byte) (uint64, int, error) {
 	if payloadLen < 126 {
 		return uint64(payloadLen), 0, nil
 	}
@@ -151,7 +174,7 @@ func (that *Server) readPayloadLength(bufrw bufio.ReadWriter, payloadLen byte) (
 	return binary.BigEndian.Uint64(length), 8, nil
 }
 
-func (that *Server) readMask(bufrw bufio.ReadWriter, maskBit byte) ([]byte, error) {
+func readMask(bufrw bufio.ReadWriter, maskBit byte) ([]byte, error) {
 	if maskBit == 0 {
 		return nil, nil
 	}
@@ -165,7 +188,7 @@ func (that *Server) readMask(bufrw bufio.ReadWriter, maskBit byte) ([]byte, erro
 	return mask, nil
 }
 
-func (that *Server) readData(bufrw bufio.ReadWriter, size uint64, mask []byte) ([]byte, error) {
+func readData(bufrw bufio.ReadWriter, size uint64, mask []byte) ([]byte, error) {
 	payload := make([]byte, size)
 	_, err := io.ReadFull(bufrw, payload)
 	if err != nil {
