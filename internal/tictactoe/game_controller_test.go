@@ -14,12 +14,6 @@ func TestNewGame(t *testing.T) {
 	gameInstance := &entity.Game{}
 	actualGame := gameInstance.Create("123")
 
-	// When: create a new game controller
-	controller := NewGameController(gameInstance)
-
-	// Then: the game controller must not be nil
-	require.NotNil(t, controller)
-
 	// Then: the game state should correspond to the expected initial state
 	expectedGame := &entity.Game{
 		ID:         "123",
@@ -36,13 +30,11 @@ func TestGame_MakeTurn(t *testing.T) {
 	t.Run("MakeTurn", func(t *testing.T) {
 		// Given: create a new game
 		gameInstance := &entity.Game{}
-		actualGame := gameInstance.Create("123")
-		actualGame.Status = entity.StatusOngoing
-
-		controller := NewGameController(gameInstance)
+		game := gameInstance.Create("123")
+		game.Status = entity.StatusOngoing
 
 		// When: player X makes a turn
-		err := controller.MakeTurn(entity.PlayerX, 0)
+		err := MakeTurn(game, entity.PlayerX, 0)
 		require.NoError(t, err)
 
 		// Then: the game state should reflect the turn and queue change
@@ -54,20 +46,24 @@ func TestGame_MakeTurn(t *testing.T) {
 			Status:     entity.StatusOngoing,
 		}
 
-		require.Equal(t, expectedGame, actualGame)
+		require.Equal(t, expectedGame, game)
 	})
 
 	t.Run("Error on cell already occupied", func(t *testing.T) {
 		// Given: new game with player X's queue
 		gameInstance := &entity.Game{}
-		actualGame := gameInstance.Create("123")
-		actualGame.Status = entity.StatusOngoing
-
-		controller := NewGameController(gameInstance)
+		game := gameInstance.Create("123")
+		game.Status = entity.StatusOngoing
 
 		// When: player X moves to cell 0
-		err := controller.MakeTurn(entity.PlayerX, 0)
+		err := MakeTurn(game, entity.PlayerX, 0)
 		require.NoError(t, err)
+
+		// When: player O tries to make a move to the same square
+		err = MakeTurn(game, entity.PlayerO, 0)
+
+		// Then: an error ErrCellOccupied must be returned
+		require.ErrorIs(t, err, ErrCellOccupied)
 
 		// Then: game state updated
 		expectedGame := &entity.Game{
@@ -78,29 +74,21 @@ func TestGame_MakeTurn(t *testing.T) {
 			Status:     entity.StatusOngoing,
 		}
 
-		// When: player O tries to make a move to the same square
-		err = controller.MakeTurn(entity.PlayerO, 0)
-
-		// Then: an error ErrCellOccupied must be returned
-		require.ErrorIs(t, err, ErrCellOccupied)
-
 		// Then: the game state remains unchanged
-		require.Equal(t, expectedGame, actualGame)
+		require.Equal(t, expectedGame, game)
 	})
 
 	t.Run("Error on playing out of turn", func(t *testing.T) {
 		// Given: a new game
 		gameInstance := &entity.Game{}
-		actualGame := gameInstance.Create("123")
-		actualGame.Status = entity.StatusOngoing
-
-		controller := NewGameController(gameInstance)
+		game := gameInstance.Create("123")
+		game.Status = entity.StatusOngoing
 
 		// When: player O tries to make a move when it is player X's turn
-		err := controller.MakeTurn(entity.PlayerO, 1)
+		err := MakeTurn(game, entity.PlayerO, 1)
 
 		// Then: an error ErrNotYourTurn must be returned
-		require.ErrorIs(t, err, ErrNotYourTurn)
+		require.ErrorIs(t, err, apperror.ErrNotYourTurn)
 
 		// Then: the game state remains unchanged
 		expectedGame := &entity.Game{
@@ -111,19 +99,17 @@ func TestGame_MakeTurn(t *testing.T) {
 			Status:     entity.StatusOngoing,
 		}
 
-		require.Equal(t, expectedGame, actualGame)
+		require.Equal(t, expectedGame, game)
 	})
 
 	t.Run("Invalid Cell", func(t *testing.T) {
 		// Given: a new game
 		gameInstance := &entity.Game{}
-		actualGame := gameInstance.Create("123")
-		actualGame.Status = entity.StatusOngoing
-
-		controller := NewGameController(gameInstance)
+		game := gameInstance.Create("123")
+		game.Status = entity.StatusOngoing
 
 		// When: an invalid cell index is passed (greater than the range)
-		err := controller.MakeTurn(entity.PlayerX, 20)
+		err := MakeTurn(game, entity.PlayerX, 20)
 
 		// Then: an error ErrInvalidCell must be returned
 		assert.ErrorIs(t, err, ErrInvalidCell)
@@ -132,13 +118,11 @@ func TestGame_MakeTurn(t *testing.T) {
 	t.Run("Invalid Negative Cell", func(t *testing.T) {
 		// Given: a new game
 		gameInstance := &entity.Game{}
-		actualGame := gameInstance.Create("123")
-		actualGame.Status = entity.StatusOngoing
-
-		controller := NewGameController(gameInstance)
+		game := gameInstance.Create("123")
+		game.Status = entity.StatusOngoing
 
 		// When: negative cell index is transmitted
-		err := controller.MakeTurn(entity.PlayerX, -1)
+		err := MakeTurn(game, entity.PlayerX, -1)
 
 		// Then: an error ErrInvalidCell must be returned
 		assert.ErrorIs(t, err, ErrInvalidCell)
@@ -152,10 +136,8 @@ func TestGame_MakeTurn(t *testing.T) {
 			PlayerTurn: entity.PlayerO,
 		}
 
-		controller := NewGameController(gameInstance)
-
 		// When: player O tries to make a move after the game is over
-		err := controller.MakeTurn(entity.PlayerO, 3)
+		err := MakeTurn(gameInstance, entity.PlayerO, 3)
 
 		// Then: an error app_error.ErrGameFinished should be returned.
 		assert.ErrorIs(t, err, apperror.ErrGameFinished)
@@ -169,10 +151,8 @@ func TestGame_MakeTurn(t *testing.T) {
 			Winner: "-",
 		}
 
-		controller := NewGameController(gameInstance)
-
 		// When: player X tries to make a move after a draw
-		err := controller.MakeTurn(entity.PlayerX, 3)
+		err := MakeTurn(gameInstance, entity.PlayerX, 3)
 
 		// Then: an error app_error.ErrGameFinished should be returned.
 		assert.ErrorIs(t, err, apperror.ErrGameFinished)
@@ -210,6 +190,6 @@ func TestGame_checkGameStatus(t *testing.T) {
 		status := checkGameStatus(board)
 
 		// Then: the game should be declared a tie
-		assert.Equal(t, playerTie, status)
+		assert.Equal(t, entity.PlayerTie, status)
 	})
 }

@@ -41,7 +41,7 @@ func (that *Server) handleConnect(ctx context.Context, msg *Message, bufrw *bufi
 		return nil
 	}
 
-	payload, err = that.inGame(ctx, player.GameID)
+	payload, err = that.inGame(ctx, player.ID)
 	if err != nil {
 		log.Info("failed to get", "game", err)
 
@@ -97,7 +97,7 @@ func (that *Server) handleJoinGame(ctx context.Context, msg *Message, bufrw *buf
 	if err != nil {
 		log.Error("failed to join game", "error", err)
 
-		return that.sendErrorResponse(bufrw, msg.Action, fmt.Sprintf("game %s is already full", payload.Game.ID))
+		return that.sendErrorResponse(bufrw, msg.Action, fmt.Sprintf("game %s: %v", payload.Game.ID, err))
 	}
 
 	payload = ResponsePayload{
@@ -127,16 +127,17 @@ func (that *Server) handleGameTurn(ctx context.Context, msg *Message, bufrw *buf
 		if err = that.handleGameFinished(bufrw, existingGame); err != nil {
 			return that.sendErrorResponse(bufrw, msg.Action, fmt.Sprintf("failed to finish game %s: %v", existingGame.ID, err))
 		}
+
+		return nil
 	}
 
 	if errors.Is(err, apperror.ErrGameIsNotStarted) {
-		return that.sendErrorResponse(bufrw, msg.Action, fmt.Sprintf("game %s is not started", existingGame.ID))
+		return that.sendErrorResponse(bufrw, msg.Action, fmt.Sprintf("game %s: %v", existingGame.ID, err))
 	}
 
 	if err != nil {
-		log.Error("failed to make move", "error", err)
-
-		return that.sendErrorResponse(bufrw, msg.Action, fmt.Sprintf("failed to move in game %s: %v", existingGame.ID, err))
+		log.Error("failed to make turn", "error", err)
+		return that.sendErrorResponse(bufrw, msg.Action, fmt.Sprintf("failed to turn in game %v", err))
 	}
 
 	payload = ResponsePayload{
@@ -170,12 +171,12 @@ func (that *Server) handleGameFinished(bufrw *bufio.ReadWriter, game *entity.Gam
 	return nil
 }
 
-func (that *Server) inGame(ctx context.Context, gameID string) (ResponsePayload, error) {
+func (that *Server) inGame(ctx context.Context, playerID string) (ResponsePayload, error) {
 	var payload ResponsePayload
 
-	game, err := that.uGame.GetOrCreateGame(ctx, gameID)
+	game, err := that.uGame.InGame(ctx, playerID)
 	if err != nil {
-		return ResponsePayload{}, fmt.Errorf("failed to create or get player: %w", err)
+		return ResponsePayload{}, fmt.Errorf("failed to get or get already game: %w", err)
 	}
 
 	payload = ResponsePayload{Game: game}

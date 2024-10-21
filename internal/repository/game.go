@@ -10,6 +10,8 @@ import (
 	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
 )
 
+var ErrGameNotFound = errors.New("game not found")
+
 type GameRepository interface {
 	CreateOrUpdate(ctx context.Context, game *entity.Game) error
 	GetByID(ctx context.Context, id string) (*entity.Game, error)
@@ -47,11 +49,11 @@ func (that *dbGame) GetByID(ctx context.Context, id string) (*entity.Game, error
 	response, err := that.client.Get(ctx, gameKey).Result()
 
 	if errors.Is(err, redis.Nil) {
-		return &entity.Game{}, ErrPlayerNotFound
+		return &entity.Game{}, ErrGameNotFound
 	}
 
 	if err != nil {
-		return &entity.Game{}, fmt.Errorf("failed to get player by ID: %w", err)
+		return &entity.Game{}, fmt.Errorf("%w by id", err)
 	}
 
 	var existingGame entity.Game

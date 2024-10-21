@@ -18,6 +18,7 @@ type uGame interface {
 	GetOrCreateGame(ctx context.Context, id string) (*entity.Game, error)
 
 	ConnectToGame(ctx context.Context, gameID, playerID string) (*entity.Game, error)
+	InGame(ctx context.Context, playerID string) (*entity.Game, error)
 
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
