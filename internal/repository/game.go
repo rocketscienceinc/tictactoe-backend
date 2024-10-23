@@ -18,17 +18,17 @@ type GameRepository interface {
 	DeleteByID(ctx context.Context, id string) error
 }
 
-type dbGame struct {
+type gameRepository struct {
 	client *redis.Client
 }
 
 func NewGameRepository(client *redis.Client) GameRepository {
-	return &dbGame{
+	return &gameRepository{
 		client: client,
 	}
 }
 
-func (that *dbGame) CreateOrUpdate(ctx context.Context, game *entity.Game) error {
+func (that *gameRepository) CreateOrUpdate(ctx context.Context, game *entity.Game) error {
 	gameJSON, err := json.Marshal(game)
 	if err != nil {
 		return fmt.Errorf("could not marshal game: %w", err)
@@ -43,33 +43,36 @@ func (that *dbGame) CreateOrUpdate(ctx context.Context, game *entity.Game) error
 	return nil
 }
 
-func (that *dbGame) GetByID(ctx context.Context, id string) (*entity.Game, error) {
+func (that *gameRepository) GetByID(ctx context.Context, id string) (*entity.Game, error) {
 	gameKey := "game:" + id
 
 	response, err := that.client.Get(ctx, gameKey).Result()
-
-	if errors.Is(err, redis.Nil) {
-		return &entity.Game{}, ErrGameNotFound
-	}
-
 	if err != nil {
-		return &entity.Game{}, fmt.Errorf("%w by id", err)
+		if errors.Is(err, redis.Nil) {
+			return &entity.Game{}, ErrGameNotFound
+		}
+
+		return &entity.Game{}, fmt.Errorf("failed to get game by ID: %w", err)
 	}
 
 	var existingGame entity.Game
 	if err = json.Unmarshal([]byte(response), &existingGame); err != nil {
-		return &entity.Game{}, fmt.Errorf("failed to unmarshal player: %w", err)
+		return &entity.Game{}, fmt.Errorf("failed to unmarshal game: %w", err)
 	}
 
 	return &existingGame, nil
 }
 
-func (that *dbGame) DeleteByID(ctx context.Context, id string) error {
+func (that *gameRepository) DeleteByID(ctx context.Context, id string) error {
 	gameKey := "game:" + id
 
-	err := that.client.Del(ctx, gameKey).Err()
+	result, err := that.client.Del(ctx, gameKey).Result()
 	if err != nil {
-		return fmt.Errorf("failed to delete player by ID: %w", err)
+		return fmt.Errorf("failed to delete game by ID: %w", err)
+	}
+
+	if result == 0 {
+		return ErrGameNotFound
 	}
 
 	return nil

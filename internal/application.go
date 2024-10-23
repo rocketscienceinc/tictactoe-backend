@@ -5,13 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/rocketscienceinc/tittactoe-backend/internal/config"
 	"github.com/rocketscienceinc/tittactoe-backend/internal/repository"
 	"github.com/rocketscienceinc/tittactoe-backend/internal/repository/storage"
+	"github.com/rocketscienceinc/tittactoe-backend/internal/service"
 	"github.com/rocketscienceinc/tittactoe-backend/internal/usecase"
 	"github.com/rocketscienceinc/tittactoe-backend/transport/rest"
 	"github.com/rocketscienceinc/tittactoe-backend/transport/websocket"
@@ -23,8 +26,11 @@ var ErrAddrNotFound = errors.New("redis address string is empty")
 func RunApp(logger *slog.Logger, conf *config.Config) error {
 	log := logger.With("component", "app")
 
-	ctx, cancel := createAppContext(log)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	redisAddrString := conf.Redis.GetRedisAddr()
 	if redisAddrString == "" {
@@ -37,66 +43,54 @@ func RunApp(logger *slog.Logger, conf *config.Config) error {
 	}
 
 	defer func() {
-		if err = redisStorage.Close(); err != nil {
+		if err = redisStorage.Connection.Close(); err != nil {
 			log.Error("could not close redis storage", "error", err)
 		}
 	}()
 
-	playerRepo := repository.NewPlayerRepository(redisStorage)
-	gameRepo := repository.NewGameRepository(redisStorage)
-	gameUseCase := usecase.NewGameManager(logger, playerRepo, gameRepo)
+	playerRepo := repository.NewPlayerRepository(redisStorage.Connection)
+	gameRepo := repository.NewGameRepository(redisStorage.Connection)
 
-	httpErrCh := startHTTPServer(log, conf.HTTPPort)
-	wsErrCh := startWebSocketServer(ctx, log, conf.SocketPort, gameUseCase)
+	playerService := service.NewPlayerService(playerRepo)
+	gameService := service.NewGameService(gameRepo)
+	gamePlayService := service.NewGamePlayService(log, playerService, gameService)
 
-	select {
-	case err = <-httpErrCh:
-		return fmt.Errorf("HTTP server error: %w", err)
-	case err = <-wsErrCh:
-		return fmt.Errorf("WebSocket server error: %w", err)
-	case <-ctx.Done():
-		log.Info("Application context canceled, shutting down")
-		return nil
+	gameUseCase := usecase.NewGameUseCase(playerService, gameService, gamePlayService)
+
+	restHandler := rest.NewHandler()
+	wsHandler := websocket.New(log, gameUseCase)
+
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/api/ping", restHandler.PingHandler)
+
+	mux.HandleFunc("/ws", wsHandler.ServeHTTP)
+
+	srv := &http.Server{
+		Addr:         ":" + conf.HTTPPort,
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  30 * time.Second,
 	}
-}
 
-func createAppContext(log *slog.Logger) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		sig := <-sigs
-		log.Info("Received signal, shutting down", "signal", sig)
-		cancel()
-	}()
-
-	return ctx, cancel
-}
-
-func startHTTPServer(log *slog.Logger, port string) chan error {
-	errCh := make(chan error, 1)
-	go func() {
-		log.Info("Starting HTTP server", "port", port)
-		if err := rest.Start(port); err != nil {
-			log.Error("HTTP server error", "error", err)
-			errCh <- err
+		log.Info("Starting HTTP and WebSocket server on", "port", conf.HTTPPort)
+		if err = srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			panic(fmt.Errorf("failed to start server: %w", err))
 		}
 	}()
 
-	return errCh
-}
+	sig := <-sigs
+	log.Info("Received signal, shutting down", "signal", sig)
 
-func startWebSocketServer(ctx context.Context, log *slog.Logger, port string, gameUseCase *usecase.GameManager) chan error {
-	errCh := make(chan error, 1)
-	go func() {
-		log.Info("Starting WebSocket server", "port", port)
-		wsServer := websocket.New(log, gameUseCase)
-		if err := wsServer.Start(ctx, port); err != nil {
-			log.Error("WebSocket server error", "error", err)
-			errCh <- err
-		}
-	}()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	if err = srv.Shutdown(shutdownCtx); err != nil {
+		panic(fmt.Errorf("server shutdown error: %w", err))
+	}
 
-	return errCh
+	log.Info("Server gracefully stopped")
+
+	return nil
 }
