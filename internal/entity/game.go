@@ -5,10 +5,11 @@ const (
 	StatusOngoing  = "ongoing"
 	StatusWaiting  = "waiting"
 
-	PlayerX = "X"
-	PlayerO = "O"
+	PlayerX   = "X"
+	PlayerO   = "O"
+	PlayerTie = "-"
 
-	emptyCell = ""
+	EmptyCell = ""
 )
 
 type Game struct {
@@ -34,7 +35,7 @@ func (that *Game) IsWaiting() bool {
 
 func (that *Game) Create(id string) *Game {
 	that.ID = id
-	that.Board = [9]string{emptyCell, emptyCell, emptyCell, emptyCell, emptyCell, emptyCell, emptyCell, emptyCell, emptyCell}
+	that.Board = [9]string{EmptyCell, EmptyCell, EmptyCell, EmptyCell, EmptyCell, EmptyCell, EmptyCell, EmptyCell, EmptyCell}
 	that.PlayerTurn = PlayerX
 	that.Status = StatusWaiting
 

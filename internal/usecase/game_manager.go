@@ -9,6 +9,7 @@ import (
 	"github.com/rocketscienceinc/tittactoe-backend/internal/apperror"
 	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
 	"github.com/rocketscienceinc/tittactoe-backend/internal/pkg"
+	"github.com/rocketscienceinc/tittactoe-backend/internal/tictactoe"
 )
 
 var ErrGameAlreadyExists = errors.New("game already exists")
@@ -24,24 +25,18 @@ type gameRepo interface {
 	DeleteByID(ctx context.Context, id string) error
 }
 
-type gameController interface {
-	MakeTurn(player string, cell int) error
-}
-
 type GameManager struct {
-	logger         *slog.Logger
-	playerRepo     playerRepo
-	gameRepo       gameRepo
-	gameController gameController
+	logger     *slog.Logger
+	playerRepo playerRepo
+	gameRepo   gameRepo
 }
 
-func NewGameManager(logger *slog.Logger, playerRepo playerRepo, gameRepo gameRepo, gameController gameController) *GameManager {
+func NewGameManager(logger *slog.Logger, playerRepo playerRepo, gameRepo gameRepo) *GameManager {
 	return &GameManager{
 		logger: logger,
 
-		playerRepo:     playerRepo,
-		gameRepo:       gameRepo,
-		gameController: gameController,
+		playerRepo: playerRepo,
+		gameRepo:   gameRepo,
 	}
 }
 
@@ -53,14 +48,14 @@ func (that *GameManager) MakeTurn(ctx context.Context, playerID string, cell int
 
 	game, err := that.getGameByID(ctx, player.GameID)
 	if err != nil {
-		return nil, fmt.Errorf("failed get game by id: %w", err)
+		return nil, fmt.Errorf("%w by id", err)
 	}
 
-	if !game.IsOngoing() {
-		return nil, apperror.ErrGameIsNotStarted
+	if game.IsWaiting() {
+		return game, apperror.ErrGameIsNotStarted
 	}
 
-	if err = that.gameController.MakeTurn(player.Mark, cell); err != nil {
+	if err = tictactoe.MakeTurn(game, player.Mark, cell); err != nil {
 		if errors.Is(err, apperror.ErrGameFinished) {
 			that.deleteGame(ctx, game)
 
@@ -69,7 +64,7 @@ func (that *GameManager) MakeTurn(ctx context.Context, playerID string, cell int
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("failed make move: %w", err)
+		return nil, fmt.Errorf("failed make turn: %w", err)
 	}
 
 	if err = that.updateGame(ctx, game); err != nil {
@@ -140,6 +135,20 @@ func (that *GameManager) GetOrCreateGame(ctx context.Context, id string) (*entit
 	}
 
 	return existingGame, nil
+}
+
+func (that *GameManager) InGame(ctx context.Context, playerID string) (*entity.Game, error) {
+	player, err := that.GetOrCreatePlayer(ctx, playerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get or get player by id: %w", err)
+	}
+
+	game, err := that.getGameByID(ctx, player.GameID)
+	if err != nil {
+		return nil, fmt.Errorf("failed get game: %w", err)
+	}
+
+	return game, nil
 }
 
 func (that *GameManager) createGame(ctx context.Context, player *entity.Player) (*entity.Game, error) {
