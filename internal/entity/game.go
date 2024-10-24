@@ -19,6 +19,11 @@ const (
 	EmptyCell = ""
 )
 
+const (
+	PublicType  = "public"
+	PrivateType = "private"
+)
+
 var (
 	ErrCellOccupied      = errors.New("cell is already occupied")
 	ErrInvalidCell       = errors.New("invalid cell index")
@@ -43,14 +48,16 @@ type Game struct {
 	Status  string    `json:"status"`
 	Turn    string    `json:"player_turn"`
 	Players []*Player `json:"players,omitempty"`
+	Type    string    `json:"type,omitempty"`
 }
 
-func NewGame(id string) *Game {
+func NewGame(id, gameType string) *Game {
 	return &Game{
 		ID:     id,
 		Board:  [9]string{EmptyCell, EmptyCell, EmptyCell, EmptyCell, EmptyCell, EmptyCell, EmptyCell, EmptyCell, EmptyCell},
 		Turn:   PlayerX,
 		Status: StatusWaiting,
+		Type:   gameType,
 	}
 }
 
@@ -140,4 +147,8 @@ func (that *Game) IsActive() error {
 	default:
 		return fmt.Errorf("%w: %s", ErrUnknownGameStatus, that.Status)
 	}
+}
+
+func (that *Game) IsPublic() bool {
+	return that.Type == PublicType
 }

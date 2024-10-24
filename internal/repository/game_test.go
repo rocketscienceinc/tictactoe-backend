@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"log/slog"
+	"os"
 	"testing"
 
 	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
@@ -9,10 +11,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func getLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level:     slog.LevelDebug,
+		AddSource: true,
+	}))
+}
+
 func TestGameRepository_CreateOrUpdate(t *testing.T) {
 	ctx, st := suite.New(t)
 
-	gameRepo := NewGameRepository(st.Storage)
+	logger := getLogger()
+
+	gameRepo := NewGameRepository(logger, st.Storage)
 
 	// Given: a game with ID and status
 	game := &entity.Game{
@@ -31,7 +42,9 @@ func TestGameRepository_GetByID(t *testing.T) {
 	t.Run("GetByID_Success", func(t *testing.T) {
 		ctx, st := suite.New(t)
 
-		gameRepo := NewGameRepository(st.Storage)
+		logger := getLogger()
+
+		gameRepo := NewGameRepository(logger, st.Storage)
 
 		// Given: a game with ID and status
 		game := &entity.Game{
@@ -54,18 +67,18 @@ func TestGameRepository_GetByID(t *testing.T) {
 	t.Run("GetByID_NotFound", func(t *testing.T) {
 		ctx, st := suite.New(t)
 
-		gameRepo := NewGameRepository(st.Storage)
+		logger := getLogger()
+
+		gameRepo := NewGameRepository(logger, st.Storage)
 
 		nonExistentGameID := "9999999"
 
 		// When: GetByID is called with non-existent ID
-		retrievedGame, err := gameRepo.GetByID(ctx, nonExistentGameID)
+		_, err := gameRepo.GetByID(ctx, nonExistentGameID)
 
 		// Then: an ErrGameNotFound error should be returned
 		require.Error(t, err)
 		assert.Equal(t, ErrGameNotFound, err)
-		assert.Empty(t, retrievedGame.ID)
-		assert.Empty(t, retrievedGame.Status)
 	})
 }
 
@@ -73,7 +86,9 @@ func TestGameRepository_DeleteByID(t *testing.T) {
 	t.Run("DeleteByID_Success", func(t *testing.T) {
 		ctx, st := suite.New(t)
 
-		gameRepo := NewGameRepository(st.Storage)
+		logger := getLogger()
+
+		gameRepo := NewGameRepository(logger, st.Storage)
 
 		// Given: a game with ID and status
 		game := &entity.Game{
@@ -97,7 +112,9 @@ func TestGameRepository_DeleteByID(t *testing.T) {
 	t.Run("DeleteByID_NotFound", func(t *testing.T) {
 		ctx, st := suite.New(t)
 
-		gameRepo := NewGameRepository(st.Storage)
+		logger := getLogger()
+
+		gameRepo := NewGameRepository(logger, st.Storage)
 
 		// Given: a non-existent game ID
 		nonExistentGameID := "9999999"

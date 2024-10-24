@@ -13,9 +13,12 @@ import (
 var ErrGameAlreadyExists = errors.New("game already exists")
 
 type GamePlayService interface {
+	JoinGameByID(ctx context.Context, gameID, playerID string) (*entity.Game, error)
+	JoinWaitingPublicGame(ctx context.Context, playerID string) (*entity.Game, error)
+
+	GetOrCreateGame(ctx context.Context, player *entity.Player, gameType string) (*entity.Game, error)
+
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
-	ConnectToGame(ctx context.Context, gameID, playerID string) (*entity.Game, error)
-	GetGameState(ctx context.Context, player *entity.Player) (*entity.Game, error)
 }
 
 type gamePlayService struct {
@@ -68,7 +71,7 @@ func (that *gamePlayService) MakeTurn(ctx context.Context, playerID string, cell
 	return game, nil
 }
 
-func (that *gamePlayService) ConnectToGame(ctx context.Context, gameID, playerID string) (*entity.Game, error) {
+func (that *gamePlayService) JoinGameByID(ctx context.Context, gameID, playerID string) (*entity.Game, error) {
 	game, err := that.gameService.GetGameByID(ctx, gameID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get game by id: %w", err)
@@ -102,9 +105,39 @@ func (that *gamePlayService) ConnectToGame(ctx context.Context, gameID, playerID
 	return game, nil
 }
 
-func (that *gamePlayService) GetGameState(ctx context.Context, player *entity.Player) (*entity.Game, error) {
+func (that *gamePlayService) JoinWaitingPublicGame(ctx context.Context, playerID string) (*entity.Game, error) {
+	game, err := that.gameService.GetWaitingPublicGame(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get game waiting public game: %w", err)
+	}
+
+	player, err := that.playerService.GetPlayerByID(ctx, playerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get player by id: %w", err)
+	}
+
+	if player.GameID == game.ID {
+		return game, nil
+	}
+
+	player.GameID = game.ID
+	player.Mark = entity.PlayerO
+	if err = that.playerService.UpdatePlayer(ctx, player); err != nil {
+		return nil, fmt.Errorf("failed to update player: %w", err)
+	}
+
+	game.Status = entity.StatusOngoing
+	game.Players = append(game.Players, player)
+	if err = that.gameService.UpdateGame(ctx, game); err != nil {
+		return nil, fmt.Errorf("failed to update game: %w", err)
+	}
+
+	return game, nil
+}
+
+func (that *gamePlayService) GetOrCreateGame(ctx context.Context, player *entity.Player, gameType string) (*entity.Game, error) {
 	if player.GameID == "" {
-		game, updatedPlayer, err := that.gameService.CreateGame(ctx, player)
+		game, updatedPlayer, err := that.gameService.CreateGame(ctx, player, gameType)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create game: %w", err)
 		}
