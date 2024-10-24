@@ -4,38 +4,38 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
 	"github.com/rocketscienceinc/tittactoe-backend/internal/pkg"
 )
 
-type uGame interface {
-	GetOrCreatePlayer(ctx context.Context, id string) (*entity.Player, error)
-	GetOrCreateGame(ctx context.Context, id string) (*entity.Game, error)
+type gameUseCase interface {
+	GetOrCreatePlayer(ctx context.Context, playerID string) (*entity.Player, error)
 
-	ConnectToGame(ctx context.Context, gameID, playerID string) (*entity.Game, error)
-	InGame(ctx context.Context, playerID string) (*entity.Game, error)
+	GetOrCreateGame(ctx context.Context, playerID string) (*entity.Game, error)
+	JoinGame(ctx context.Context, gameID, playerID string) (*entity.Game, error)
 
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
 
 type Server struct {
-	logger *slog.Logger
-	uGame  uGame
+	logger      *slog.Logger
+	gameUseCase gameUseCase
 
 	handlers map[string]func(ctx context.Context, message *Message, writer *bufio.ReadWriter) error
+
+	connections map[string]*bufio.ReadWriter
 }
 
-func New(logger *slog.Logger, uGame uGame) *Server {
+func New(logger *slog.Logger, gameUseCase gameUseCase) *Server {
 	server := &Server{
-		logger: logger,
-		uGame:  uGame,
+		logger:      logger,
+		gameUseCase: gameUseCase,
 
-		handlers: make(map[string]func(context.Context, *Message, *bufio.ReadWriter) error),
+		handlers:    make(map[string]func(context.Context, *Message, *bufio.ReadWriter) error),
+		connections: make(map[string]*bufio.ReadWriter),
 	}
 
 	server.handlers["connect"] = server.handleConnect
@@ -46,25 +46,8 @@ func New(logger *slog.Logger, uGame uGame) *Server {
 	return server
 }
 
-// Start - starts WebSocket server.
-func (that *Server) Start(ctx context.Context, port string) error {
-	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		that.upgradeToWebSocket(ctx, w, r)
-	})
-
-	srv := &http.Server{
-		Addr:         ":" + port,
-		Handler:      http.DefaultServeMux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  30 * time.Second,
-	}
-
-	if err := srv.ListenAndServe(); err != nil {
-		return fmt.Errorf("failed to start server: %w", err)
-	}
-
-	return nil
+func (that *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	that.upgradeToWebSocket(r.Context(), w, r)
 }
 
 // upgradeToWebSocket - upgrades the connection to WebSocket.
@@ -76,10 +59,8 @@ func (that *Server) upgradeToWebSocket(ctx context.Context, writer http.Response
 		return
 	}
 
-	that.setSessionCookie(writer, req)
-
-	key := req.Header.Get("Sec-WebSocket-Key")
-	acceptKey := pkg.GenerateAcceptKey(key)
+	wsKey := req.Header.Get("Sec-WebSocket-Key")
+	acceptKey := pkg.GenerateAcceptKey(wsKey)
 
 	writer.Header().Set("Upgrade", "websocket")
 	writer.Header().Set("Connection", "Upgrade")
@@ -126,32 +107,22 @@ func (that *Server) handleMessages(ctx context.Context, bufrw *bufio.ReadWriter)
 
 		handler, ok := that.handlers[message.Action]
 		if !ok {
-			log.Error("error processing message", "error", err) // ToDo: need log this
+			log.Error("action handler not found")
+
+			payloadResp := ResponsePayload{
+				Error: "action handler not found",
+			}
+
+			err = that.sendMessage(*bufrw, message.Action, payloadResp)
+			if err != nil {
+				log.Error("failed to send message", "error", err)
+			}
+
 			continue
 		}
 
 		if err = handler(ctx, &message, bufrw); err != nil {
-			log.Error("error processing message", "error", err)
+			log.Error("processing handle message", "error", err)
 		}
 	}
-}
-
-// setSessionCookie - set user session.
-func (that *Server) setSessionCookie(writer http.ResponseWriter, req *http.Request) {
-	log := that.logger.With("method", "setSessionCookie")
-
-	cookie, err := req.Cookie("user_session")
-	if err != nil {
-		cookie = &http.Cookie{
-			Name:    "user_session",
-			Value:   pkg.GenerateNewSessionID(),
-			Expires: time.Now().Add(24 * time.Hour),
-			Path:    "/ws",
-		}
-		http.SetCookie(writer, cookie)
-		log.Info("session cookie not found, new one created", "cookie", cookie.Value)
-		return
-	}
-
-	log.Info("session cookie found", "cookie", cookie.Value)
 }

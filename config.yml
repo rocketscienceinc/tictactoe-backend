@@ -1,8 +1,6 @@
 log-lever: info
 
-http-port: "8080"
-
-socket-port: "9090"
+http-port: "9090"
 
 redis:
   host: "localhost"

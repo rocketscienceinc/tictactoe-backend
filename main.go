@@ -15,21 +15,25 @@ var ErrUnknownLogLevel = errors.New("unknown log level")
 
 // main - is the entry point of the application. It initializes the configuration, logger, and runs the application.
 func main() {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Fprintf(os.Stderr, "recovered from panic: %v\n", err)
+			os.Exit(1)
+		}
+	}()
+
 	conf, err := initConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to initialize config: %v\n", err)
-		os.Exit(1)
+		panic(fmt.Errorf("error initializing config: %w", err))
 	}
 
 	logger, err := initLogger(conf)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
-		os.Exit(1)
+		panic(fmt.Errorf("error initializing logger: %w", err))
 	}
 
 	if err = app.RunApp(logger, conf); err != nil {
-		logger.Error("Application failed to run", "error", err)
-		os.Exit(1)
+		panic(fmt.Errorf("application failed to run: %w", err))
 	}
 }
 

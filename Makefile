@@ -15,3 +15,6 @@ lint:
 format:
 	@echo "Running formating code..."
 	@golangci-lint run --fix
+
+mock:
+	@mockery
