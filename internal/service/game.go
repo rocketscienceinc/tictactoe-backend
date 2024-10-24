@@ -9,15 +9,20 @@ import (
 )
 
 type GameService interface {
-	CreateGame(ctx context.Context, player *entity.Player) (*entity.Game, *entity.Player, error)
-	GetGameByID(ctx context.Context, id string) (*entity.Game, error)
+	CreateGame(ctx context.Context, player *entity.Player, gameType string) (*entity.Game, *entity.Player, error)
 	UpdateGame(ctx context.Context, game *entity.Game) error
 	DeleteGame(ctx context.Context, gameID string) error
+
+	GetGameByID(ctx context.Context, id string) (*entity.Game, error)
+	GetWaitingPublicGame(ctx context.Context) (*entity.Game, error)
 }
 
 type gameRepo interface {
 	CreateOrUpdate(ctx context.Context, game *entity.Game) error
+
 	GetByID(ctx context.Context, id string) (*entity.Game, error)
+	GetWaitingPublicGame(ctx context.Context) (*entity.Game, error)
+
 	DeleteByID(ctx context.Context, id string) error
 }
 
@@ -31,9 +36,9 @@ func NewGameService(gameRepo gameRepo) GameService {
 	}
 }
 
-func (that *gameService) CreateGame(ctx context.Context, player *entity.Player) (*entity.Game, *entity.Player, error) {
+func (that *gameService) CreateGame(ctx context.Context, player *entity.Player, gameType string) (*entity.Game, *entity.Player, error) {
 	gameID := pkg.GenerateGameID()
-	game := entity.NewGame(gameID)
+	game := entity.NewGame(gameID, gameType)
 
 	player.GameID = gameID
 	player.Mark = entity.PlayerX
@@ -49,6 +54,14 @@ func (that *gameService) GetGameByID(ctx context.Context, id string) (*entity.Ga
 	game, err := that.gameRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve game from storage: %w", err)
+	}
+	return game, nil
+}
+
+func (that *gameService) GetWaitingPublicGame(ctx context.Context) (*entity.Game, error) {
+	game, err := that.gameRepo.GetWaitingPublicGame(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve active public game from storage: %w", err)
 	}
 	return game, nil
 }

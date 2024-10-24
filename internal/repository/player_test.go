@@ -61,6 +61,6 @@ func TestPlayerRepository_GetByID(t *testing.T) {
 		// Then: an ErrPlayerNotFound error should be returned
 		require.Error(t, err)
 		assert.Equal(t, ErrPlayerNotFound, err)
-		assert.Empty(t, retrievedPlayer.ID)
+		assert.Nil(t, retrievedPlayer)
 	})
 }
