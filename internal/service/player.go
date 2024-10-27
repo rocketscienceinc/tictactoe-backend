@@ -5,9 +5,16 @@ import (
 	"fmt"
 
 	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
+	"github.com/rocketscienceinc/tittactoe-backend/internal/pkg"
 )
 
 type PlayerService interface {
+	CreatePlayer(ctx context.Context) (*entity.Player, error)
+	GetPlayerByID(ctx context.Context, id string) (*entity.Player, error)
+	UpdatePlayer(ctx context.Context, player *entity.Player) error
+}
+
+type playerRepo interface {
 	CreateOrUpdate(ctx context.Context, player *entity.Player) error
 	GetByID(ctx context.Context, id string) (*entity.Player, error)
 }
@@ -16,30 +23,33 @@ type playerService struct {
 	playerRepo playerRepo
 }
 
-type playerRepo interface {
-	CreateOrUpdate(ctx context.Context, player *entity.Player) error
-	GetByID(ctx context.Context, id string) (*entity.Player, error)
-}
-
 func NewPlayerService(playerRepo playerRepo) PlayerService {
 	return &playerService{
 		playerRepo: playerRepo,
 	}
 }
 
-func (that *playerService) CreateOrUpdate(ctx context.Context, player *entity.Player) error {
-	if err := that.playerRepo.CreateOrUpdate(ctx, player); err != nil {
-		return fmt.Errorf("create player %w", err)
-	}
+func (that *playerService) CreatePlayer(ctx context.Context) (*entity.Player, error) {
+	playerID := pkg.GenerateNewSessionID()
+	player := &entity.Player{ID: playerID}
 
-	return nil
+	if err := that.playerRepo.CreateOrUpdate(ctx, player); err != nil {
+		return nil, fmt.Errorf("failed to create player from storage: %w", err)
+	}
+	return player, nil
 }
 
-func (that *playerService) GetByID(ctx context.Context, id string) (*entity.Player, error) {
-	existingPlayer, err := that.playerRepo.GetByID(ctx, id)
+func (that *playerService) GetPlayerByID(ctx context.Context, id string) (*entity.Player, error) {
+	player, err := that.playerRepo.GetByID(ctx, id)
 	if err != nil {
-		return &entity.Player{}, fmt.Errorf("get player by id %w", err)
+		return nil, fmt.Errorf("failed to retrieve player from storage: %w", err)
 	}
+	return player, nil
+}
 
-	return existingPlayer, nil
+func (that *playerService) UpdatePlayer(ctx context.Context, player *entity.Player) error {
+	if err := that.playerRepo.CreateOrUpdate(ctx, player); err != nil {
+		return fmt.Errorf("failed to update player: %w", err)
+	}
+	return nil
 }
