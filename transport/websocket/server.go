@@ -14,8 +14,10 @@ import (
 type gameUseCase interface {
 	GetOrCreatePlayer(ctx context.Context, playerID string) (*entity.Player, error)
 
-	GetOrCreateGame(ctx context.Context, playerID string) (*entity.Game, error)
-	JoinGame(ctx context.Context, gameID, playerID string) (*entity.Game, error)
+	GetOrCreateGame(ctx context.Context, playerID, gameType string) (*entity.Game, error)
+	GetGameByPlayerID(ctx context.Context, playerID string) (*entity.Game, error)
+	JoinGameByID(ctx context.Context, gameID, playerID string) (*entity.Game, error)
+	JoinWaitingPublicGame(ctx context.Context, playerID string) (*entity.Game, error)
 
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
@@ -122,7 +124,7 @@ func (that *Server) handleMessages(ctx context.Context, bufrw *bufio.ReadWriter)
 		}
 
 		if err = handler(ctx, &message, bufrw); err != nil {
-			log.Error("processing handle message", "error", err)
+			log.Error("invalid handle message", "error", err)
 		}
 	}
 }
