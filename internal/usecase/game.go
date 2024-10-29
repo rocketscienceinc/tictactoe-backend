@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/rocketscienceinc/tittactoe-backend/internal/apperror"
 	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
 )
 
@@ -35,6 +36,7 @@ type gamePlayService interface {
 	JoinWaitingPublicGame(ctx context.Context, playerID string) (*entity.Game, error)
 
 	GetOrCreateGame(ctx context.Context, player *entity.Player, gameType string) (*entity.Game, error)
+	CleanupGame(ctx context.Context, game *entity.Game) // ToDo: Need refactor
 
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
@@ -120,7 +122,13 @@ func (that *gameUseCase) JoinWaitingPublicGame(ctx context.Context, playerID str
 func (that *gameUseCase) MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error) {
 	game, err := that.gamePlayService.MakeTurn(ctx, playerID, cell)
 	if err != nil {
-		return nil, fmt.Errorf("failed to make turn: %w", err)
+		return game, fmt.Errorf("failed to make turn: %w", err)
+	}
+
+	if game.IsFinished() {
+		that.gamePlayService.CleanupGame(ctx, game)
+
+		return game, apperror.ErrGameFinished
 	}
 
 	return game, nil

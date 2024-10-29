@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/rocketscienceinc/tittactoe-backend/internal/apperror"
 	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
 )
 
@@ -17,6 +16,7 @@ type GamePlayService interface {
 	JoinWaitingPublicGame(ctx context.Context, playerID string) (*entity.Game, error)
 
 	GetOrCreateGame(ctx context.Context, player *entity.Player, gameType string) (*entity.Game, error)
+	CleanupGame(ctx context.Context, game *entity.Game)
 
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
@@ -26,13 +26,15 @@ type gamePlayService struct {
 
 	playerService PlayerService
 	gameService   GameService
+	botService    BotService
 }
 
-func NewGamePlayService(logger *slog.Logger, playerService PlayerService, gameService GameService) GamePlayService {
+func NewGamePlayService(logger *slog.Logger, playerService PlayerService, gameService GameService, botService BotService) GamePlayService {
 	return &gamePlayService{
 		logger:        logger,
 		playerService: playerService,
 		gameService:   gameService,
+		botService:    botService,
 	}
 }
 
@@ -47,25 +49,30 @@ func (that *gamePlayService) MakeTurn(ctx context.Context, playerID string, cell
 		return nil, fmt.Errorf("failed to get game by id: %w", err)
 	}
 
-	if err = game.IsActive(); err != nil {
-		if errors.Is(err, apperror.ErrGameFinished) {
-			that.cleanupGame(ctx, game)
-
-			return nil, err //nolint: wrapcheck // it`s ok
-		}
-		return game, fmt.Errorf("game is not active: %w", err)
+	if !game.IsOngoing() {
+		return nil, ErrGameAlreadyExists
 	}
 
 	if err = game.MakeTurn(player.Mark, cell); err != nil {
-		return nil, fmt.Errorf("failed to make turn: %w", err)
+		return game, fmt.Errorf("failed to make turn: %w", err)
+	}
+
+	if game.IsFinished() {
+		if err = that.gameService.UpdateGame(ctx, game); err != nil {
+			return nil, fmt.Errorf("failed to update game: %w", err)
+		}
+
+		return game, nil
+	}
+
+	if game.IsWithBot() {
+		if err = that.botService.MakeTurn(game); err != nil {
+			return nil, fmt.Errorf("bot failed to make turn: %w", err) // ToDo: Need Fix this
+		}
 	}
 
 	if err = that.gameService.UpdateGame(ctx, game); err != nil {
 		return nil, fmt.Errorf("failed to update game: %w", err)
-	}
-
-	if game.Status == entity.StatusFinished {
-		that.cleanupGame(ctx, game)
 	}
 
 	return game, nil
@@ -137,13 +144,9 @@ func (that *gamePlayService) JoinWaitingPublicGame(ctx context.Context, playerID
 
 func (that *gamePlayService) GetOrCreateGame(ctx context.Context, player *entity.Player, gameType string) (*entity.Game, error) {
 	if player.GameID == "" {
-		game, updatedPlayer, err := that.gameService.CreateGame(ctx, player, gameType)
+		game, err := that.createGame(ctx, player, gameType)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create game: %w", err)
-		}
-
-		if err = that.playerService.UpdatePlayer(ctx, updatedPlayer); err != nil {
-			return nil, fmt.Errorf("failed to update player: %w", err)
+			return nil, fmt.Errorf("failed to create new game: %w", err)
 		}
 
 		return game, nil
@@ -157,18 +160,72 @@ func (that *gamePlayService) GetOrCreateGame(ctx context.Context, player *entity
 	return game, nil
 }
 
-func (that *gamePlayService) cleanupGame(ctx context.Context, game *entity.Game) {
-	log := that.logger.With("method", "cleanupGame")
+func (that *gamePlayService) createGame(ctx context.Context, player *entity.Player, gameType string) (*entity.Game, error) {
+	game, updatedPlayer, err := that.gameService.CreateGame(ctx, player, gameType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create game: %w", err)
+	}
+
+	if err = that.playerService.UpdatePlayer(ctx, updatedPlayer); err != nil {
+		return nil, fmt.Errorf("failed to update player: %w", err)
+	}
+
+	if game.IsWithBot() {
+		err = that.addBotToGame(ctx, game)
+		if err != nil {
+			return nil, fmt.Errorf("failed to add bot to game: %w", err)
+		}
+	}
+
+	return game, nil
+}
+
+func (that *gamePlayService) addBotToGame(ctx context.Context, game *entity.Game) error {
+	botPlayer := entity.NewBotPlayer(game.ID, "")
+
+	game.Players = append(game.Players, botPlayer)
+	game.Status = entity.StatusOngoing
+
+	playerMark, botMark := game.GetRandomMarks()
+	for _, player := range game.Players {
+		if !player.IsBot() {
+			player.Mark = playerMark
+			if err := that.playerService.UpdatePlayer(ctx, player); err != nil {
+				return fmt.Errorf("failed to update player: %w", err)
+			}
+		}
+	}
+	botPlayer.Mark = botMark
+
+	if err := that.playerService.UpdatePlayer(ctx, botPlayer); err != nil {
+		return fmt.Errorf("failed to update bot player: %w", err)
+	}
+
+	if botMark == entity.PlayerX {
+		if err := that.botService.MakeTurn(game); err != nil {
+			return fmt.Errorf("bot failed to make first turn: %w", err)
+		}
+	}
+
+	if err := that.gameService.UpdateGame(ctx, game); err != nil {
+		return fmt.Errorf("failed to update game with bot: %w", err)
+	}
+
+	return nil
+}
+
+func (that *gamePlayService) CleanupGame(ctx context.Context, game *entity.Game) {
+	log := that.logger.With("method", "cleanupGame", "gameID", game.ID)
 
 	if err := that.gameService.DeleteGame(ctx, game.ID); err != nil {
-		log.Error("failed to delete game %s: %w", game.ID, err)
+		log.Error("failed to delete game", "error", err)
 	}
 
 	for _, player := range game.Players {
 		player.GameID = ""
 		player.Mark = ""
 		if err := that.playerService.UpdatePlayer(ctx, player); err != nil {
-			log.Error("failed to update player %s: %w", player.GameID, err)
+			log.Error("failed to update", "player", player.ID, "error", err)
 		}
 	}
 }

@@ -22,7 +22,7 @@ func (that *Server) handleConnect(ctx context.Context, msg *Message, bufrw *bufi
 
 	player, err := that.gameUseCase.GetOrCreatePlayer(ctx, payloadReq.Player.ID)
 	if err != nil {
-		log.Info("failed to create or get", "player", err)
+		log.Error("failed to create or get", "player", err)
 
 		return that.sendErrorResponse(bufrw, msg.Action, "failed to create a new player")
 	}
@@ -76,7 +76,7 @@ func (that *Server) handleNewGame(ctx context.Context, msg *Message, bufrw *bufi
 
 	game, err := that.gameUseCase.GetOrCreateGame(ctx, payloadReq.Player.ID, payloadReq.Game.Type)
 	if err != nil {
-		log.Info("failed to create or get", "player", err)
+		log.Error("failed to create or get", "player", err)
 		return that.sendErrorResponse(bufrw, msg.Action, "failed to create a new game")
 	}
 
@@ -85,7 +85,7 @@ func (that *Server) handleNewGame(ctx context.Context, msg *Message, bufrw *bufi
 	for _, player := range game.Players {
 		conn, ok := that.connections[player.ID]
 		if !ok {
-			log.Info("failed to find connection")
+			log.Error("failed to find connection")
 			continue
 		}
 
@@ -124,7 +124,7 @@ func (that *Server) handleJoinGame(ctx context.Context, msg *Message, bufrw *buf
 	var err error
 
 	if payloadReq.Game.IsPublic() {
-		game, err = that.gameUseCase.JoinWaitingPublicGame(ctx, payloadReq.Player.ID)
+		game, err = that.gameUseCase.JoinWaitingPublicGame(ctx, payloadReq.Player.ID) // ToDo: Nee to move usecase
 		if err != nil {
 			log.Info("failed to join public game", "error", err)
 			return that.sendErrorResponse(bufrw, msg.Action, fmt.Sprintf("game %s: %v", payloadReq.Game.ID, err))
@@ -194,6 +194,10 @@ func (that *Server) handleGameTurn(ctx context.Context, msg *Message, bufrw *buf
 		return that.sendErrorResponse(bufrw, msg.Action, fmt.Sprintf("game %s: %v", game.ID, err))
 	}
 
+	if errors.Is(err, apperror.ErrCellOccupied) {
+		return that.sendErrorResponse(bufrw, msg.Action, fmt.Sprintf("game %s: %v", game.ID, err))
+	}
+
 	if err != nil {
 		log.Error("failed to make turn", "error", err)
 		return that.sendErrorResponse(bufrw, msg.Action, fmt.Sprintf("failed to turn in game %v", err))
@@ -202,7 +206,7 @@ func (that *Server) handleGameTurn(ctx context.Context, msg *Message, bufrw *buf
 	for _, player := range game.Players {
 		conn, ok := that.connections[player.ID]
 		if !ok {
-			log.Info("failed to find connection")
+			log.Error("failed to find connection")
 			continue
 		}
 
@@ -233,15 +237,19 @@ func (that *Server) handleGameFinished(game *entity.Game) error {
 		Game: game,
 	}
 
-	payloadResp.Game.Players = nil
-	payloadResp.Game.Type = ""
-
 	for _, player := range game.Players {
-		conn, ok := that.connections[player.ID]
-		if !ok {
-			log.Info("failed to find connection", "player", player.ID)
+		if player.IsBot() {
 			continue
 		}
+
+		conn, ok := that.connections[player.ID]
+		if !ok {
+			log.Error("failed to find connection", "player", player.ID)
+			continue
+		}
+
+		payloadResp.Game.Players = nil
+		payloadResp.Game.Type = ""
 
 		if err := that.sendMessage(*conn, action, payloadResp); err != nil {
 			return fmt.Errorf("failed to send game finished message %s: %w", player.ID, err)
