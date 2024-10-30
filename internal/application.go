@@ -14,11 +14,14 @@ import (
 	"github.com/rocketscienceinc/tittactoe-backend/internal/config"
 	"github.com/rocketscienceinc/tittactoe-backend/internal/repository"
 	"github.com/rocketscienceinc/tittactoe-backend/internal/repository/storage"
+	"github.com/rocketscienceinc/tittactoe-backend/internal/repository/storage/sqlite"
 	"github.com/rocketscienceinc/tittactoe-backend/internal/service"
 	"github.com/rocketscienceinc/tittactoe-backend/internal/usecase"
 	"github.com/rocketscienceinc/tittactoe-backend/transport/rest"
 	"github.com/rocketscienceinc/tittactoe-backend/transport/websocket"
 )
+
+const sqliteStoragePath = "data/sqlite/storage.db"
 
 var ErrAddrNotFound = errors.New("redis address string is empty")
 
@@ -48,6 +51,18 @@ func RunApp(logger *slog.Logger, conf *config.Config) error {
 		}
 	}()
 
+	// create a new sqlite storage
+	sqliteStorage, err := sqlite.New(sqliteStoragePath)
+	if err != nil {
+		panic(fmt.Errorf("can't connect to sqlite storage: %w", err))
+	}
+
+	// init sqlite storage
+	if err = sqliteStorage.Init(ctx); err != nil {
+		panic(fmt.Errorf("can't init sqlite storage: %w", err))
+	}
+
+	userRepo := repository.NewUserRepository(sqliteStorage.Connection)
 	playerRepo := repository.NewPlayerRepository(redisStorage.Connection)
 	gameRepo := repository.NewGameRepository(log, redisStorage.Connection)
 
@@ -58,12 +73,18 @@ func RunApp(logger *slog.Logger, conf *config.Config) error {
 
 	gameUseCase := usecase.NewGameUseCase(playerService, gameService, gamePlayService)
 
-	restHandler := rest.NewHandler()
 	wsHandler := websocket.New(log, gameUseCase)
+
+	userService := service.NewUserService(userRepo)
+	authService := service.NewAuthService("pingo")
+
+	restHandlers := rest.NewHandlers(conf.GoogleOAuth.RedirectURL, conf.GoogleOAuth.ClientID, conf.GoogleOAuth.ClientSecret, userService, authService)
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/api/ping", restHandler.PingHandler)
+	mux.HandleFunc("/api/ping", restHandlers.PingHandler)
+	mux.HandleFunc("/api/auth/google/login", restHandlers.GoogleLogin)
+	mux.HandleFunc("/api/auth/google/callback", restHandlers.GoogleCallback)
 
 	mux.HandleFunc("/ws", wsHandler.ServeHTTP)
 

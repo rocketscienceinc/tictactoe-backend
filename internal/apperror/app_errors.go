@@ -8,4 +8,6 @@ var (
 	ErrNotYourTurn      = errors.New("it's not your turn")
 	ErrNoActiveGames    = errors.New("no active games")
 	ErrCellOccupied     = errors.New("cell is already occupied")
+
+	ErrNotSavedUser = errors.New("not saved user")
 )
