@@ -164,8 +164,6 @@ func (that *Server) handleGameTurn(ctx context.Context, msg *Message, bufrw *buf
 		return nil
 	}
 
-	log = log.With("gameID", game.ID)
-
 	if errors.Is(err, apperror.ErrGameIsNotStarted) {
 		return that.sendErrorResponse(bufrw, msg.Action, fmt.Sprintf("game %s: %v", game.ID, err))
 	}
@@ -174,6 +172,8 @@ func (that *Server) handleGameTurn(ctx context.Context, msg *Message, bufrw *buf
 		log.Error("failed to make turn", "error", err)
 		return that.sendErrorResponse(bufrw, msg.Action, fmt.Sprintf("failed to turn in game %v", err))
 	}
+
+	log = log.With("gameID", game.ID)
 
 	for _, player := range game.Players {
 		conn, ok := that.connections[player.ID]
