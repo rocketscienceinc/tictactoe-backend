@@ -135,7 +135,8 @@ func (that *Server) handleJoinGame(ctx context.Context, msg *Message, bufrw *buf
 		}
 
 		payloadResp := ResponsePayload{
-			Game: game,
+			Player: player,
+			Game:   game,
 		}
 
 		payloadResp.Game.Players = nil
@@ -165,7 +166,7 @@ func (that *Server) handleGameTurn(ctx context.Context, msg *Message, bufrw *buf
 
 	game, err := that.gameUseCase.MakeTurn(ctx, payloadReq.Player.ID, payloadReq.Cell)
 	if errors.Is(err, apperror.ErrGameFinished) {
-		if err = that.handleGameFinished(game); err != nil {
+		if err = that.handleGameFinished(msg.Action, game); err != nil {
 			return that.sendErrorResponse(bufrw, msg.Action, fmt.Sprintf("failed to finish game %s: %v", game.ID, err))
 		}
 
@@ -207,16 +208,8 @@ func (that *Server) handleGameTurn(ctx context.Context, msg *Message, bufrw *buf
 	return nil
 }
 
-func (that *Server) handleGameFinished(game *entity.Game) error {
+func (that *Server) handleGameFinished(action string, game *entity.Game) error {
 	log := that.logger.With("method", "handleGameFinished")
-
-	action := "game:finished"
-
-	payloadResp := ResponsePayload{
-		Game: game,
-	}
-
-	payloadResp.Game.Players = nil
 
 	for _, player := range game.Players {
 		conn, ok := that.connections[player.ID]
@@ -224,6 +217,13 @@ func (that *Server) handleGameFinished(game *entity.Game) error {
 			log.Info("failed to find connection", "player", player.ID)
 			continue
 		}
+
+		payloadResp := ResponsePayload{
+			Player: player,
+			Game:   game,
+		}
+
+		payloadResp.Game.Players = nil
 
 		if err := that.sendMessage(*conn, action, payloadResp); err != nil {
 			return fmt.Errorf("failed to send game finished message %s: %w", player.ID, err)
