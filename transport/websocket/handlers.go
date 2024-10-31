@@ -198,7 +198,7 @@ func (that *Server) handleGameTurn(ctx context.Context, msg *Message, bufrw *buf
 
 		payloadResp.Game.Players = nil
 
-		if err = that.sendMessage(*conn, "game:turn:update", payloadResp); err != nil {
+		if err = that.sendMessage(*conn, msg.Action, payloadResp); err != nil {
 			log.Error("failed to send game update", "error", err)
 		}
 	}
