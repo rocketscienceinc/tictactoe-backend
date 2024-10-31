@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/rocketscienceinc/tittactoe-backend/internal/apperror"
 	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
 )
 
@@ -33,6 +34,7 @@ type gamePlayService interface {
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 	ConnectToGame(ctx context.Context, gameID, playerID string) (*entity.Game, error)
 	GetGameState(ctx context.Context, player *entity.Player) (*entity.Game, error)
+	CleanupGame(ctx context.Context, game *entity.Game)
 }
 
 type gameUseCase struct {
@@ -94,6 +96,12 @@ func (that *gameUseCase) MakeTurn(ctx context.Context, playerID string, cell int
 	game, err := that.gamePlayService.MakeTurn(ctx, playerID, cell)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make turn: %w", err)
+	}
+
+	if game.IsFinished() {
+		that.gamePlayService.CleanupGame(ctx, game)
+
+		return game, apperror.ErrGameFinished
 	}
 
 	return game, nil

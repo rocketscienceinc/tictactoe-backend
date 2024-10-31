@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/rocketscienceinc/tittactoe-backend/internal/apperror"
 	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
 )
 
@@ -16,6 +15,7 @@ type GamePlayService interface {
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 	ConnectToGame(ctx context.Context, gameID, playerID string) (*entity.Game, error)
 	GetGameState(ctx context.Context, player *entity.Player) (*entity.Game, error)
+	CleanupGame(ctx context.Context, game *entity.Game)
 }
 
 type gamePlayService struct {
@@ -44,13 +44,8 @@ func (that *gamePlayService) MakeTurn(ctx context.Context, playerID string, cell
 		return nil, fmt.Errorf("failed to get game by id: %w", err)
 	}
 
-	if err = game.IsActive(); err != nil {
-		if errors.Is(err, apperror.ErrGameFinished) {
-			that.cleanupGame(ctx, game)
-
-			return nil, err //nolint: wrapcheck // it`s ok
-		}
-		return game, fmt.Errorf("game is not active: %w", err)
+	if !game.IsOngoing() {
+		return nil, ErrGameAlreadyExists
 	}
 
 	if err = game.MakeTurn(player.Mark, cell); err != nil {
@@ -59,10 +54,6 @@ func (that *gamePlayService) MakeTurn(ctx context.Context, playerID string, cell
 
 	if err = that.gameService.UpdateGame(ctx, game); err != nil {
 		return nil, fmt.Errorf("failed to update game: %w", err)
-	}
-
-	if game.Status == entity.StatusFinished {
-		that.cleanupGame(ctx, game)
 	}
 
 	return game, nil
@@ -124,7 +115,7 @@ func (that *gamePlayService) GetGameState(ctx context.Context, player *entity.Pl
 	return game, nil
 }
 
-func (that *gamePlayService) cleanupGame(ctx context.Context, game *entity.Game) {
+func (that *gamePlayService) CleanupGame(ctx context.Context, game *entity.Game) {
 	log := that.logger.With("method", "cleanupGame")
 
 	if err := that.gameService.DeleteGame(ctx, game.ID); err != nil {
