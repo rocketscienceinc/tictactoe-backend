@@ -81,15 +81,23 @@ func (that *Server) handleNewGame(ctx context.Context, msg *Message, bufrw *bufi
 
 	log = log.With("gameID", game.ID)
 
-	payloadResp := ResponsePayload{
-		Player: payloadReq.Player,
-		Game:   game,
-	}
+	for _, player := range game.Players {
+		conn, ok := that.connections[player.ID]
+		if !ok {
+			log.Error("failed to find connection")
+			continue
+		}
 
-	payloadResp.Game.Players = nil
+		payloadResp := ResponsePayload{
+			Player: player,
+			Game:   game,
+		}
 
-	if err = that.sendMessage(*bufrw, msg.Action, payloadResp); err != nil {
-		return fmt.Errorf("failed to send response: %w", err)
+		payloadResp.Game.Players = nil
+
+		if err = that.sendMessage(*conn, msg.Action, payloadResp); err != nil {
+			log.Error("failed to send game update", "error", err)
+		}
 	}
 
 	log.Info("Player is already in game")
