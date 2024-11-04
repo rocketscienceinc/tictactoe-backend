@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/rocketscienceinc/tittactoe-backend/internal/apperror"
@@ -13,8 +14,8 @@ type GameUseCase interface {
 
 	GetOrCreateGame(ctx context.Context, playerID, gameType string) (*entity.Game, error)
 	GetGameByPlayerID(ctx context.Context, playerID string) (*entity.Game, error)
+	CreateOrJoinToPublicGame(ctx context.Context, playerID, gameType string) (*entity.Game, error)
 	JoinGameByID(ctx context.Context, gameID, playerID string) (*entity.Game, error)
-	JoinWaitingPublicGame(ctx context.Context, playerID string) (*entity.Game, error)
 
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
@@ -36,7 +37,7 @@ type gamePlayService interface {
 	JoinWaitingPublicGame(ctx context.Context, playerID string) (*entity.Game, error)
 
 	GetOrCreateGame(ctx context.Context, player *entity.Player, gameType string) (*entity.Game, error)
-	CleanupGame(ctx context.Context, game *entity.Game) // ToDo: Need refactor
+	CleanupGame(ctx context.Context, game *entity.Game)
 
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
@@ -110,10 +111,22 @@ func (that *gameUseCase) JoinGameByID(ctx context.Context, gameID, playerID stri
 	return game, nil
 }
 
-func (that *gameUseCase) JoinWaitingPublicGame(ctx context.Context, playerID string) (*entity.Game, error) {
-	game, err := that.gamePlayService.JoinWaitingPublicGame(ctx, playerID)
+func (that *gameUseCase) CreateOrJoinToPublicGame(ctx context.Context, playerID, gameType string) (*entity.Game, error) {
+	player, err := that.playerService.GetPlayerByID(ctx, playerID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to join waiting public game: %w", err)
+		return nil, fmt.Errorf("failed to get player by id: %w", err)
+	}
+
+	game, err := that.gamePlayService.JoinWaitingPublicGame(ctx, player.ID)
+	if err != nil {
+		if errors.Is(err, apperror.ErrNoActiveGames) {
+			game, err = that.gamePlayService.GetOrCreateGame(ctx, player, gameType)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get game state: %w", err)
+			}
+			return game, nil
+		}
+		return nil, fmt.Errorf("failed to join public game: %w", err)
 	}
 
 	return game, nil

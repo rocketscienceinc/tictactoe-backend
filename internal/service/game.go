@@ -14,7 +14,7 @@ type GameService interface {
 	DeleteGame(ctx context.Context, gameID string) error
 
 	GetGameByID(ctx context.Context, id string) (*entity.Game, error)
-	GetWaitingPublicGame(ctx context.Context) (*entity.Game, error)
+	GetPublicGameByID(ctx context.Context) (*entity.Game, error)
 }
 
 type gameRepo interface {
@@ -37,7 +37,11 @@ func NewGameService(gameRepo gameRepo) GameService {
 }
 
 func (that *gameService) CreateGame(ctx context.Context, player *entity.Player, gameType string) (*entity.Game, *entity.Player, error) {
-	gameID := pkg.GenerateGameID()
+	gameID, err := pkg.GenerateGameID()
+	if err != nil {
+		return nil, nil, fmt.Errorf("error generating game ID: %w", err)
+	}
+
 	game := entity.NewGame(gameID, gameType)
 
 	player.GameID = gameID
@@ -58,7 +62,7 @@ func (that *gameService) GetGameByID(ctx context.Context, id string) (*entity.Ga
 	return game, nil
 }
 
-func (that *gameService) GetWaitingPublicGame(ctx context.Context) (*entity.Game, error) {
+func (that *gameService) GetPublicGameByID(ctx context.Context) (*entity.Game, error) {
 	game, err := that.gameRepo.GetWaitingPublicGame(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve active public game from storage: %w", err)

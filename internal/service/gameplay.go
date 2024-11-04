@@ -113,7 +113,7 @@ func (that *gamePlayService) JoinGameByID(ctx context.Context, gameID, playerID 
 }
 
 func (that *gamePlayService) JoinWaitingPublicGame(ctx context.Context, playerID string) (*entity.Game, error) {
-	game, err := that.gameService.GetWaitingPublicGame(ctx)
+	game, err := that.gameService.GetPublicGameByID(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get game waiting public game: %w", err)
 	}
@@ -222,10 +222,12 @@ func (that *gamePlayService) CleanupGame(ctx context.Context, game *entity.Game)
 	}
 
 	for _, player := range game.Players {
+		oldMark := player.Mark
 		player.GameID = ""
 		player.Mark = ""
 		if err := that.playerService.UpdatePlayer(ctx, player); err != nil {
 			log.Error("failed to update", "player", player.ID, "error", err)
 		}
+		player.Mark = oldMark
 	}
 }
