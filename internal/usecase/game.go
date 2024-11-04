@@ -144,5 +144,11 @@ func (that *gameUseCase) MakeTurn(ctx context.Context, playerID string, cell int
 		return game, apperror.ErrGameFinished
 	}
 
+	if game.IsFinished() {
+		that.gamePlayService.CleanupGame(ctx, game)
+
+		return game, apperror.ErrGameFinished
+	}
+
 	return game, nil
 }
