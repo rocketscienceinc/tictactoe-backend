@@ -3,6 +3,7 @@ package entity
 import (
 	"errors"
 	"fmt"
+	"math/rand"
 
 	"github.com/rocketscienceinc/tittactoe-backend/internal/apperror"
 )
@@ -19,8 +20,13 @@ const (
 	EmptyCell = ""
 )
 
+const (
+	PublicType  = "public"
+	PrivateType = "private"
+	WithBotType = "bot"
+)
+
 var (
-	ErrCellOccupied      = errors.New("cell is already occupied")
 	ErrInvalidCell       = errors.New("invalid cell index")
 	ErrUnknownGameStatus = errors.New("unknown game status")
 
@@ -43,14 +49,16 @@ type Game struct {
 	Status  string    `json:"status"`
 	Turn    string    `json:"player_turn"`
 	Players []*Player `json:"players,omitempty"`
+	Type    string    `json:"type,omitempty"`
 }
 
-func NewGame(id string) *Game {
+func NewGame(id, gameType string) *Game {
 	return &Game{
 		ID:     id,
 		Board:  [9]string{EmptyCell, EmptyCell, EmptyCell, EmptyCell, EmptyCell, EmptyCell, EmptyCell, EmptyCell, EmptyCell},
 		Turn:   PlayerX,
 		Status: StatusWaiting,
+		Type:   gameType,
 	}
 }
 
@@ -100,7 +108,7 @@ func (that *Game) MakeTurn(playerMark string, cell int) error {
 	}
 
 	if that.Board[cell] != EmptyCell {
-		return ErrCellOccupied
+		return apperror.ErrCellOccupied
 	}
 
 	that.Board[cell] = playerMark
@@ -129,7 +137,7 @@ func (that *Game) IsWaiting() bool {
 	return that.Status == StatusWaiting
 }
 
-func (that *Game) IsActive() error {
+func (that *Game) ConfirmOngoingState() error {
 	switch {
 	case that.IsWaiting():
 		return apperror.ErrGameIsNotStarted
@@ -140,4 +148,19 @@ func (that *Game) IsActive() error {
 	default:
 		return fmt.Errorf("%w: %s", ErrUnknownGameStatus, that.Status)
 	}
+}
+
+func (that *Game) IsPublic() bool {
+	return that.Type == PublicType
+}
+
+func (that *Game) IsWithBot() bool {
+	return that.Type == WithBotType
+}
+
+func (that *Game) GetRandomMarks() (string, string) {
+	if rand.Intn(2) == 0 { //nolint: gosec // it's ok
+		return PlayerX, PlayerO
+	}
+	return PlayerO, PlayerX
 }

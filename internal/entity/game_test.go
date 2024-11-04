@@ -43,13 +43,13 @@ func TestGameStatusMethods(t *testing.T) {
 	})
 }
 
-func TestGame_IsActive(t *testing.T) {
+func TestGame_ConfirmOngoingState(t *testing.T) {
 	t.Run("Returns nil when game is ongoing", func(t *testing.T) {
 		// Given: a game with StatusOngoing
 		game := &Game{Status: StatusOngoing}
 
 		// When: checking if the game is active
-		err := game.IsActive()
+		err := game.ConfirmOngoingState()
 
 		// Then: it should return nil error
 		assert.NoError(t, err)
@@ -60,7 +60,7 @@ func TestGame_IsActive(t *testing.T) {
 		game := &Game{Status: StatusWaiting}
 
 		// When: checking if the game is active
-		err := game.IsActive()
+		err := game.ConfirmOngoingState()
 
 		// Then: it should return ErrGameIsNotStarted
 		assert.ErrorIs(t, err, apperror.ErrGameIsNotStarted)
@@ -71,7 +71,7 @@ func TestGame_IsActive(t *testing.T) {
 		game := &Game{Status: StatusFinished}
 
 		// When: checking if the game is active
-		err := game.IsActive()
+		err := game.ConfirmOngoingState()
 
 		// Then: it should return ErrGameFinished
 		assert.ErrorIs(t, err, apperror.ErrGameFinished)
@@ -82,7 +82,7 @@ func TestGame_IsActive(t *testing.T) {
 		game := &Game{Status: "unknown"}
 
 		// When: checking if the game is active
-		err := game.IsActive()
+		err := game.ConfirmOngoingState()
 
 		// Then: it should return an error
 		require.Error(t, err)
@@ -228,7 +228,7 @@ func TestGame_UpdateGameState(t *testing.T) {
 func TestGame_MakeTurn(t *testing.T) {
 	t.Run("Successful Turn", func(t *testing.T) {
 		// Given: A new game
-		game := NewGame("123")
+		game := NewGame("123", PrivateType)
 		game.Status = StatusOngoing
 
 		// When: Player X makes a valid turn
@@ -243,6 +243,7 @@ func TestGame_MakeTurn(t *testing.T) {
 			Winner:  "",
 			Status:  StatusOngoing,
 			Players: nil,
+			Type:    PrivateType,
 		}
 
 		require.Equal(t, expectedGame, game)
@@ -250,7 +251,7 @@ func TestGame_MakeTurn(t *testing.T) {
 
 	t.Run("Error on Cell Already Occupied", func(t *testing.T) {
 		// Given: A game where cell 0 is occupied by Player X
-		game := NewGame("123")
+		game := NewGame("123", PrivateType)
 		game.Status = StatusOngoing
 		err := game.MakeTurn(PlayerX, 0)
 		require.NoError(t, err)
@@ -259,7 +260,7 @@ func TestGame_MakeTurn(t *testing.T) {
 		err = game.MakeTurn(PlayerO, 0)
 
 		// Then: An ErrCellOccupied error should be returned
-		require.ErrorIs(t, err, ErrCellOccupied)
+		require.ErrorIs(t, err, apperror.ErrCellOccupied)
 
 		// And: The game state should remain unchanged
 		expectedGame := &Game{
@@ -269,6 +270,7 @@ func TestGame_MakeTurn(t *testing.T) {
 			Winner:  "",
 			Status:  StatusOngoing,
 			Players: nil,
+			Type:    PrivateType,
 		}
 
 		require.Equal(t, expectedGame, game)
@@ -276,7 +278,7 @@ func TestGame_MakeTurn(t *testing.T) {
 
 	t.Run("Error on Playing Out of Turn", func(t *testing.T) {
 		// Given: A new game where it's Player X's turn
-		game := NewGame("123")
+		game := NewGame("123", PrivateType)
 		game.Status = StatusOngoing
 
 		// When: Player O tries to make a move
@@ -293,6 +295,7 @@ func TestGame_MakeTurn(t *testing.T) {
 			Winner:  "",
 			Status:  StatusOngoing,
 			Players: nil,
+			Type:    PrivateType,
 		}
 
 		require.Equal(t, expectedGame, game)
@@ -300,7 +303,7 @@ func TestGame_MakeTurn(t *testing.T) {
 
 	t.Run("Error on Invalid Cell Index (Greater than Range)", func(t *testing.T) {
 		// Given: A new game
-		game := NewGame("123")
+		game := NewGame("123", PrivateType)
 		game.Status = StatusOngoing
 
 		// When: An invalid cell index is passed (greater than the range)
@@ -312,7 +315,7 @@ func TestGame_MakeTurn(t *testing.T) {
 
 	t.Run("Error on Invalid Cell Index (Negative)", func(t *testing.T) {
 		// Given: A new game
-		game := NewGame("123")
+		game := NewGame("123", PrivateType)
 		game.Status = StatusOngoing
 
 		// When: A negative cell index is passed

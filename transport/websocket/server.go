@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -14,8 +16,10 @@ import (
 type gameUseCase interface {
 	GetOrCreatePlayer(ctx context.Context, playerID string) (*entity.Player, error)
 
-	GetOrCreateGame(ctx context.Context, playerID string) (*entity.Game, error)
-	JoinGame(ctx context.Context, gameID, playerID string) (*entity.Game, error)
+	GetOrCreateGame(ctx context.Context, playerID, gameType string) (*entity.Game, error)
+	GetGameByPlayerID(ctx context.Context, playerID string) (*entity.Game, error)
+	CreateOrJoinToPublicGame(ctx context.Context, playerID, gameType string) (*entity.Game, error)
+	JoinGameByID(ctx context.Context, gameID, playerID string) (*entity.Game, error)
 
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
@@ -95,7 +99,12 @@ func (that *Server) handleMessages(ctx context.Context, bufrw *bufio.ReadWriter)
 	for {
 		reqBody, err := that.readRequest(bufrw)
 		if err != nil {
-			log.Error("error reading message", "error", err)
+			if errors.Is(err, io.EOF) {
+				log.Info("Client closed the connection")
+				return nil
+			}
+
+			log.Error("Error reading message", "error", err)
 			return err
 		}
 
@@ -109,11 +118,7 @@ func (that *Server) handleMessages(ctx context.Context, bufrw *bufio.ReadWriter)
 		if !ok {
 			log.Error("action handler not found")
 
-			payloadResp := ResponsePayload{
-				Error: "action handler not found",
-			}
-
-			err = that.sendMessage(*bufrw, message.Action, payloadResp)
+			err = that.sendErrorResponse(bufrw, message.Action, "action handler not found")
 			if err != nil {
 				log.Error("failed to send message", "error", err)
 			}
@@ -122,7 +127,9 @@ func (that *Server) handleMessages(ctx context.Context, bufrw *bufio.ReadWriter)
 		}
 
 		if err = handler(ctx, &message, bufrw); err != nil {
-			log.Error("processing handle message", "error", err)
+			log.Error("invalid handle message", "error", err)
+
+			continue
 		}
 	}
 }

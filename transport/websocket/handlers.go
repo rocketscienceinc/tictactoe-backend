@@ -14,15 +14,20 @@ import (
 func (that *Server) handleConnect(ctx context.Context, msg *Message, bufrw *bufio.ReadWriter) error {
 	log := that.logger.With("method", "handleConnect")
 
-	var payloadReq ResponsePayload
+	var payloadReq Payload
 
 	if err := json.Unmarshal(msg.Payload, &payloadReq); err != nil {
 		return fmt.Errorf("failed to unmarshal payload: %w", err)
 	}
 
+	if payloadReq.Player == nil {
+		log.Error("Player is missing in payload")
+		return that.sendErrorResponse(bufrw, msg.Action, "Player is required")
+	}
+
 	player, err := that.gameUseCase.GetOrCreatePlayer(ctx, payloadReq.Player.ID)
 	if err != nil {
-		log.Info("failed to create or get", "player", err)
+		log.Error("failed to create or get", "player", err)
 
 		return that.sendErrorResponse(bufrw, msg.Action, "failed to create a new player")
 	}
@@ -30,30 +35,31 @@ func (that *Server) handleConnect(ctx context.Context, msg *Message, bufrw *bufi
 	that.connections[player.ID] = bufrw
 
 	if player.GameID != "" {
-		game, err := that.gameUseCase.GetOrCreateGame(ctx, player.ID)
+		game, err := that.gameUseCase.GetGameByPlayerID(ctx, player.ID)
 		if err != nil {
 			log.Info("failed to get the game", "game", player.GameID)
 			return that.sendErrorResponse(bufrw, msg.Action, "failed to get the game")
 		}
 
-		payloadResp := ResponsePayload{
+		payloadResp := Payload{
 			Player: player,
 			Game:   game,
 		}
 		payloadResp.Game.Players = nil
+		payloadResp.Game.Type = ""
 
-		if err = that.sendMessage(*bufrw, msg.Action, payloadResp); err != nil {
+		if err = that.sendMessage(bufrw, msg.Action, payloadResp); err != nil {
 			return fmt.Errorf("failed to send response: %w", err)
 		}
 
 		return nil
 	}
 
-	payloadResp := ResponsePayload{
+	payloadResp := Payload{
 		Player: player,
 	}
 
-	if err = that.sendMessage(*bufrw, msg.Action, payloadResp); err != nil {
+	if err = that.sendMessage(bufrw, msg.Action, payloadResp); err != nil {
 		return fmt.Errorf("failed to send response: %w", err)
 	}
 
@@ -65,18 +71,41 @@ func (that *Server) handleConnect(ctx context.Context, msg *Message, bufrw *bufi
 func (that *Server) handleNewGame(ctx context.Context, msg *Message, bufrw *bufio.ReadWriter) error {
 	log := that.logger.With("method", "handleNewGame")
 
-	var payloadReq ResponsePayload
+	var payloadReq Payload
 
 	if err := json.Unmarshal(msg.Payload, &payloadReq); err != nil {
 		return fmt.Errorf("failed to unmarshal payload: %w", err)
 	}
 
+	if payloadReq.Player == nil {
+		log.Error("Player is missing in payload")
+		return that.sendErrorResponse(bufrw, msg.Action, "Player is required")
+	}
+
+	if payloadReq.Game == nil {
+		log.Error("Game is missing in payload")
+		return that.sendErrorResponse(bufrw, msg.Action, "Game is required")
+	}
+
 	that.connections[payloadReq.Player.ID] = bufrw
 
-	game, err := that.gameUseCase.GetOrCreateGame(ctx, payloadReq.Player.ID)
-	if err != nil {
-		log.Info("failed to create or get", "player", err)
-		return that.sendErrorResponse(bufrw, msg.Action, "failed to create a new game")
+	var game *entity.Game
+	var err error
+
+	if payloadReq.Game.IsPublic() {
+		game, err = that.gameUseCase.CreateOrJoinToPublicGame(ctx, payloadReq.Player.ID, payloadReq.Game.Type)
+		if err != nil {
+			log.Error("failed to create or join to public game", "game", payloadReq.Game.Type)
+			return that.sendErrorResponse(bufrw, msg.Action, "failed to create or join to public game")
+		}
+	}
+
+	if !payloadReq.Game.IsPublic() {
+		game, err = that.gameUseCase.GetOrCreateGame(ctx, payloadReq.Player.ID, payloadReq.Game.Type)
+		if err != nil {
+			log.Error("failed to create or get", "player", err)
+			return that.sendErrorResponse(bufrw, msg.Action, "failed to create a new game")
+		}
 	}
 
 	log = log.With("gameID", game.ID)
@@ -88,14 +117,15 @@ func (that *Server) handleNewGame(ctx context.Context, msg *Message, bufrw *bufi
 			continue
 		}
 
-		payloadResp := ResponsePayload{
+		payloadResp := Payload{
 			Player: player,
 			Game:   game,
 		}
 
 		payloadResp.Game.Players = nil
+		payloadResp.Game.Type = ""
 
-		if err = that.sendMessage(*conn, msg.Action, payloadResp); err != nil {
+		if err = that.sendMessage(conn, msg.Action, payloadResp); err != nil {
 			log.Error("failed to send game update", "error", err)
 		}
 	}
@@ -108,20 +138,29 @@ func (that *Server) handleNewGame(ctx context.Context, msg *Message, bufrw *bufi
 func (that *Server) handleJoinGame(ctx context.Context, msg *Message, bufrw *bufio.ReadWriter) error {
 	log := that.logger.With("method", "handleJoinGame")
 
-	var payloadReq ResponsePayload
+	var payloadReq Payload
 
 	if err := json.Unmarshal(msg.Payload, &payloadReq); err != nil {
 		return fmt.Errorf("failed to unmarshal playload: %w", err)
+	}
+
+	if payloadReq.Player == nil {
+		log.Error("Player is missing in payload")
+		return that.sendErrorResponse(bufrw, msg.Action, "Player is required")
+	}
+
+	if payloadReq.Game == nil {
+		log.Error("Game is missing in payload")
+		return that.sendErrorResponse(bufrw, msg.Action, "Game is required")
 	}
 
 	that.connections[payloadReq.Player.ID] = bufrw
 
 	log = log.With("playerID", payloadReq.Player.ID)
 
-	game, err := that.gameUseCase.JoinGame(ctx, payloadReq.Game.ID, payloadReq.Player.ID)
+	game, err := that.gameUseCase.JoinGameByID(ctx, payloadReq.Game.ID, payloadReq.Player.ID)
 	if err != nil {
 		log.Error("failed to join game", "error", err)
-
 		return that.sendErrorResponse(bufrw, msg.Action, fmt.Sprintf("game %s: %v", payloadReq.Game.ID, err))
 	}
 
@@ -134,14 +173,15 @@ func (that *Server) handleJoinGame(ctx context.Context, msg *Message, bufrw *buf
 			continue
 		}
 
-		payloadResp := ResponsePayload{
+		payloadResp := Payload{
 			Player: player,
 			Game:   game,
 		}
 
 		payloadResp.Game.Players = nil
+		payloadResp.Game.Type = ""
 
-		if err = that.sendMessage(*conn, msg.Action, payloadResp); err != nil {
+		if err = that.sendMessage(conn, msg.Action, payloadResp); err != nil {
 			log.Error("failed to send game update", "error", err)
 		}
 	}
@@ -154,17 +194,27 @@ func (that *Server) handleJoinGame(ctx context.Context, msg *Message, bufrw *buf
 func (that *Server) handleGameTurn(ctx context.Context, msg *Message, bufrw *bufio.ReadWriter) error {
 	log := that.logger.With("method", "handleGameTurn")
 
-	var payloadReq ResponsePayload
+	var payloadReq Payload
 
 	if err := json.Unmarshal(msg.Payload, &payloadReq); err != nil {
 		return fmt.Errorf("failed to unmarshal playload: %w", err)
+	}
+
+	if payloadReq.Player == nil {
+		log.Error("Player is missing in payload")
+		return that.sendErrorResponse(bufrw, msg.Action, "Player is required")
+	}
+
+	if payloadReq.Cell == nil {
+		log.Error("Game is missing in payload")
+		return that.sendErrorResponse(bufrw, msg.Action, "Game is required")
 	}
 
 	that.connections[payloadReq.Player.ID] = bufrw
 
 	log = log.With("playerID", payloadReq.Player.ID)
 
-	game, err := that.gameUseCase.MakeTurn(ctx, payloadReq.Player.ID, payloadReq.Cell)
+	game, err := that.gameUseCase.MakeTurn(ctx, payloadReq.Player.ID, *payloadReq.Cell)
 	if errors.Is(err, apperror.ErrGameFinished) {
 		if err = that.handleGameFinished(msg.Action, game); err != nil {
 			return that.sendErrorResponse(bufrw, msg.Action, fmt.Sprintf("failed to finish game %s: %v", game.ID, err))
@@ -174,6 +224,10 @@ func (that *Server) handleGameTurn(ctx context.Context, msg *Message, bufrw *buf
 	}
 
 	if errors.Is(err, apperror.ErrGameIsNotStarted) {
+		return that.sendErrorResponse(bufrw, msg.Action, fmt.Sprintf("game %s: %v", game.ID, err))
+	}
+
+	if errors.Is(err, apperror.ErrCellOccupied) {
 		return that.sendErrorResponse(bufrw, msg.Action, fmt.Sprintf("game %s: %v", game.ID, err))
 	}
 
@@ -187,18 +241,19 @@ func (that *Server) handleGameTurn(ctx context.Context, msg *Message, bufrw *buf
 	for _, player := range game.Players {
 		conn, ok := that.connections[player.ID]
 		if !ok {
-			log.Info("failed to find connection")
+			log.Error("failed to find connection")
 			continue
 		}
 
-		payloadResp := ResponsePayload{
+		payloadResp := Payload{
 			Player: player,
 			Game:   game,
 		}
 
 		payloadResp.Game.Players = nil
+		payloadResp.Game.Type = ""
 
-		if err = that.sendMessage(*conn, msg.Action, payloadResp); err != nil {
+		if err = that.sendMessage(conn, msg.Action, payloadResp); err != nil {
 			log.Error("failed to send game update", "error", err)
 		}
 	}
@@ -212,20 +267,25 @@ func (that *Server) handleGameFinished(action string, game *entity.Game) error {
 	log := that.logger.With("method", "handleGameFinished")
 
 	for _, player := range game.Players {
-		conn, ok := that.connections[player.ID]
-		if !ok {
-			log.Info("failed to find connection", "player", player.ID)
+		if player.IsBot() {
 			continue
 		}
 
-		payloadResp := ResponsePayload{
+		conn, ok := that.connections[player.ID]
+		if !ok {
+			log.Error("failed to find connection", "player", player.ID)
+			continue
+		}
+
+		payloadResp := Payload{
 			Player: player,
 			Game:   game,
 		}
 
 		payloadResp.Game.Players = nil
+		payloadResp.Game.Type = ""
 
-		if err := that.sendMessage(*conn, action, payloadResp); err != nil {
+		if err := that.sendMessage(conn, action, payloadResp); err != nil {
 			return fmt.Errorf("failed to send game finished message %s: %w", player.ID, err)
 		}
 	}
@@ -236,8 +296,8 @@ func (that *Server) handleGameFinished(action string, game *entity.Game) error {
 }
 
 func (that *Server) sendErrorResponse(bufrw *bufio.ReadWriter, action, errorMsg string) error {
-	payload := ResponsePayload{Error: errorMsg}
-	if err := that.sendMessage(*bufrw, action, payload); err != nil {
+	payload := Payload{Error: errorMsg}
+	if err := that.sendMessage(bufrw, action, payload); err != nil {
 		return fmt.Errorf("failed to send error response: %w", err)
 	}
 

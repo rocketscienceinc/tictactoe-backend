@@ -1,18 +1,30 @@
 package repository
 
 import (
+	"log/slog"
+	"os"
 	"testing"
 
+	"github.com/rocketscienceinc/tittactoe-backend/internal/apperror"
 	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
 	"github.com/rocketscienceinc/tittactoe-backend/testing/suite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+func getLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level:     slog.LevelDebug,
+		AddSource: true,
+	}))
+}
+
 func TestGameRepository_CreateOrUpdate(t *testing.T) {
 	ctx, st := suite.New(t)
 
-	gameRepo := NewGameRepository(st.Storage)
+	logger := getLogger()
+
+	gameRepo := NewGameRepository(logger, st.Storage)
 
 	// Given: a game with ID and status
 	game := &entity.Game{
@@ -31,7 +43,9 @@ func TestGameRepository_GetByID(t *testing.T) {
 	t.Run("GetByID_Success", func(t *testing.T) {
 		ctx, st := suite.New(t)
 
-		gameRepo := NewGameRepository(st.Storage)
+		logger := getLogger()
+
+		gameRepo := NewGameRepository(logger, st.Storage)
 
 		// Given: a game with ID and status
 		game := &entity.Game{
@@ -54,18 +68,18 @@ func TestGameRepository_GetByID(t *testing.T) {
 	t.Run("GetByID_NotFound", func(t *testing.T) {
 		ctx, st := suite.New(t)
 
-		gameRepo := NewGameRepository(st.Storage)
+		logger := getLogger()
+
+		gameRepo := NewGameRepository(logger, st.Storage)
 
 		nonExistentGameID := "9999999"
 
 		// When: GetByID is called with non-existent ID
-		retrievedGame, err := gameRepo.GetByID(ctx, nonExistentGameID)
+		_, err := gameRepo.GetByID(ctx, nonExistentGameID)
 
 		// Then: an ErrGameNotFound error should be returned
 		require.Error(t, err)
 		assert.Equal(t, ErrGameNotFound, err)
-		assert.Empty(t, retrievedGame.ID)
-		assert.Empty(t, retrievedGame.Status)
 	})
 }
 
@@ -73,7 +87,9 @@ func TestGameRepository_DeleteByID(t *testing.T) {
 	t.Run("DeleteByID_Success", func(t *testing.T) {
 		ctx, st := suite.New(t)
 
-		gameRepo := NewGameRepository(st.Storage)
+		logger := getLogger()
+
+		gameRepo := NewGameRepository(logger, st.Storage)
 
 		// Given: a game with ID and status
 		game := &entity.Game{
@@ -97,7 +113,9 @@ func TestGameRepository_DeleteByID(t *testing.T) {
 	t.Run("DeleteByID_NotFound", func(t *testing.T) {
 		ctx, st := suite.New(t)
 
-		gameRepo := NewGameRepository(st.Storage)
+		logger := getLogger()
+
+		gameRepo := NewGameRepository(logger, st.Storage)
 
 		// Given: a non-existent game ID
 		nonExistentGameID := "9999999"
@@ -108,5 +126,54 @@ func TestGameRepository_DeleteByID(t *testing.T) {
 		// Then: an ErrGameNotFound error should be returned
 		require.Error(t, err)
 		require.Equal(t, ErrGameNotFound, err)
+	})
+}
+
+func TestGameRepository_GetWaitingPublicGame(t *testing.T) {
+	t.Run("GetWaitingPublicGame_Success", func(t *testing.T) {
+		ctx, st := suite.New(t)
+		logger := getLogger()
+
+		gameRepo := NewGameRepository(logger, st.Storage)
+
+		// Given: an existing public game with status waiting
+		existingGame := &entity.Game{
+			ID:     "123",
+			Status: entity.StatusWaiting,
+			Type:   entity.PublicType,
+		}
+
+		err := gameRepo.CreateOrUpdate(ctx, existingGame)
+		require.NoError(t, err)
+
+		// When: GetWaitingPublicGame is called
+		game, err := gameRepo.GetWaitingPublicGame(ctx)
+
+		// Then: the retrieved game should match the existing game
+		require.NoError(t, err)
+		require.Equal(t, existingGame.ID, game.ID)
+	})
+	t.Run("GetWaitingPublicGame_NotFound", func(t *testing.T) {
+		ctx, st := suite.New(t)
+		logger := getLogger()
+
+		gameRepo := NewGameRepository(logger, st.Storage)
+
+		// Given: an existing private game with status waiting
+		existingGame := &entity.Game{
+			ID:     "9999999",
+			Type:   entity.PrivateType,
+			Status: entity.StatusWaiting,
+		}
+
+		err := gameRepo.CreateOrUpdate(ctx, existingGame)
+		require.NoError(t, err)
+
+		game, err := gameRepo.GetWaitingPublicGame(ctx)
+
+		// Then: an ErrNoActiveGames error should be returned and no game should be retrieved
+		require.Error(t, err)
+		require.Equal(t, apperror.ErrNoActiveGames, err)
+		require.Nil(t, game)
 	})
 }

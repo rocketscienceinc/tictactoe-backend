@@ -48,14 +48,14 @@ func (that *playerRepository) GetByID(ctx context.Context, id string) (*entity.P
 	response, err := that.client.Get(ctx, playerKey).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			return &entity.Player{}, ErrPlayerNotFound
+			return nil, ErrPlayerNotFound
 		}
-		return &entity.Player{}, fmt.Errorf("failed to get player by ID: %w", err)
+		return nil, fmt.Errorf("failed to get player by ID: %w", err)
 	}
 
 	var existingPlayer entity.Player
 	if err = json.Unmarshal([]byte(response), &existingPlayer); err != nil {
-		return &entity.Player{}, fmt.Errorf("failed to unmarshal player: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal player: %w", err)
 	}
 
 	return &existingPlayer, nil

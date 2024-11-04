@@ -4,11 +4,14 @@ import (
 	"crypto/rand"
 	"crypto/sha1" //nolint: gosec // idk how to fix that
 	"encoding/base64"
+	"fmt"
 	"math/big"
 )
 
 // Static GUID defined in RFC 6455 for WebSocket.
 const websocketGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+const lettersAndNumbers = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 // GenerateAcceptKey - generates key for WebSocket handshake.
 func GenerateAcceptKey(key string) string {
@@ -30,10 +33,17 @@ func GenerateNewSessionID() string {
 }
 
 // GenerateGameID - generates a unique identifier for the room.
-func GenerateGameID() string {
-	n, err := rand.Int(rand.Reader, big.NewInt(99999999))
-	if err != nil {
-		return ""
+func GenerateGameID() (string, error) {
+	length := 10
+
+	gameID := make([]byte, length)
+	for i := range length {
+		index, err := rand.Int(rand.Reader, big.NewInt(int64(len(lettersAndNumbers))))
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random index: %w", err)
+		}
+		gameID[i] = lettersAndNumbers[index.Int64()]
 	}
-	return n.String()
+
+	return string(gameID), nil
 }

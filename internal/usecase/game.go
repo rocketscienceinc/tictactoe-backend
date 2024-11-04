@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/rocketscienceinc/tittactoe-backend/internal/apperror"
@@ -11,8 +12,10 @@ import (
 type GameUseCase interface {
 	GetOrCreatePlayer(ctx context.Context, playerID string) (*entity.Player, error)
 
-	GetOrCreateGame(ctx context.Context, playerID string) (*entity.Game, error)
-	JoinGame(ctx context.Context, gameID, playerID string) (*entity.Game, error)
+	GetOrCreateGame(ctx context.Context, playerID, gameType string) (*entity.Game, error)
+	GetGameByPlayerID(ctx context.Context, playerID string) (*entity.Game, error)
+	CreateOrJoinToPublicGame(ctx context.Context, playerID, gameType string) (*entity.Game, error)
+	JoinGameByID(ctx context.Context, gameID, playerID string) (*entity.Game, error)
 
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
@@ -24,17 +27,19 @@ type playerService interface {
 }
 
 type gameService interface {
-	CreateGame(ctx context.Context, player *entity.Player) (*entity.Game, *entity.Player, error)
 	GetGameByID(ctx context.Context, id string) (*entity.Game, error)
 	UpdateGame(ctx context.Context, game *entity.Game) error
 	DeleteGame(ctx context.Context, gameID string) error
 }
 
 type gamePlayService interface {
-	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
-	ConnectToGame(ctx context.Context, gameID, playerID string) (*entity.Game, error)
-	GetGameState(ctx context.Context, player *entity.Player) (*entity.Game, error)
+	JoinGameByID(ctx context.Context, gameID, playerID string) (*entity.Game, error)
+	JoinWaitingPublicGame(ctx context.Context, playerID string) (*entity.Game, error)
+
+	GetOrCreateGame(ctx context.Context, player *entity.Player, gameType string) (*entity.Game, error)
 	CleanupGame(ctx context.Context, game *entity.Game)
+
+	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
 
 type gameUseCase struct {
@@ -69,13 +74,13 @@ func (that *gameUseCase) GetOrCreatePlayer(ctx context.Context, playerID string)
 	return player, nil
 }
 
-func (that *gameUseCase) GetOrCreateGame(ctx context.Context, playerID string) (*entity.Game, error) {
+func (that *gameUseCase) GetOrCreateGame(ctx context.Context, playerID, gameType string) (*entity.Game, error) {
 	player, err := that.playerService.GetPlayerByID(ctx, playerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get player: %w", err)
 	}
 
-	game, err := that.gamePlayService.GetGameState(ctx, player)
+	game, err := that.gamePlayService.GetOrCreateGame(ctx, player, gameType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get game state: %w", err)
 	}
@@ -83,10 +88,45 @@ func (that *gameUseCase) GetOrCreateGame(ctx context.Context, playerID string) (
 	return game, nil
 }
 
-func (that *gameUseCase) JoinGame(ctx context.Context, gameID, playerID string) (*entity.Game, error) {
-	game, err := that.gamePlayService.ConnectToGame(ctx, gameID, playerID)
+func (that *gameUseCase) GetGameByPlayerID(ctx context.Context, playerID string) (*entity.Game, error) {
+	player, err := that.playerService.GetPlayerByID(ctx, playerID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to game: %w", err)
+		return nil, fmt.Errorf("failed to get player: %w", err)
+	}
+
+	game, err := that.gameService.GetGameByID(ctx, player.GameID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get game state: %w", err)
+	}
+
+	return game, nil
+}
+
+func (that *gameUseCase) JoinGameByID(ctx context.Context, gameID, playerID string) (*entity.Game, error) {
+	game, err := that.gamePlayService.JoinGameByID(ctx, gameID, playerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to join game: %w", err)
+	}
+
+	return game, nil
+}
+
+func (that *gameUseCase) CreateOrJoinToPublicGame(ctx context.Context, playerID, gameType string) (*entity.Game, error) {
+	player, err := that.playerService.GetPlayerByID(ctx, playerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get player by id: %w", err)
+	}
+
+	game, err := that.gamePlayService.JoinWaitingPublicGame(ctx, player.ID)
+	if err != nil {
+		if errors.Is(err, apperror.ErrNoActiveGames) {
+			game, err = that.gamePlayService.GetOrCreateGame(ctx, player, gameType)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get game state: %w", err)
+			}
+			return game, nil
+		}
+		return nil, fmt.Errorf("failed to join public game: %w", err)
 	}
 
 	return game, nil
@@ -95,7 +135,13 @@ func (that *gameUseCase) JoinGame(ctx context.Context, gameID, playerID string) 
 func (that *gameUseCase) MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error) {
 	game, err := that.gamePlayService.MakeTurn(ctx, playerID, cell)
 	if err != nil {
-		return nil, fmt.Errorf("failed to make turn: %w", err)
+		return game, fmt.Errorf("failed to make turn: %w", err)
+	}
+
+	if game.IsFinished() {
+		that.gamePlayService.CleanupGame(ctx, game)
+
+		return game, apperror.ErrGameFinished
 	}
 
 	if game.IsFinished() {
