@@ -53,7 +53,8 @@ func RunApp(logger *slog.Logger, conf *config.Config) error {
 
 	playerService := service.NewPlayerService(playerRepo)
 	gameService := service.NewGameService(gameRepo)
-	gamePlayService := service.NewGamePlayService(log, playerService, gameService)
+	botService := service.NewBotService()
+	gamePlayService := service.NewGamePlayService(log, playerService, gameService, botService)
 
 	gameUseCase := usecase.NewGameUseCase(playerService, gameService, gamePlayService)
 

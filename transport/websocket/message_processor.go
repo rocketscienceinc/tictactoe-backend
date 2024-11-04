@@ -4,10 +4,16 @@ import (
 	"bufio"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 
 	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
+)
+
+var (
+	ErrUnsupportedOpcode              = errors.New("unsupported opcode")
+	ErrFragmentedMessagesNotSupported = errors.New("fragmented messages are not supported")
 )
 
 // frame represents a WebSocket frame and its metadata.
@@ -24,14 +30,14 @@ type Message struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
-type ResponsePayload struct {
+type Payload struct {
 	Player *entity.Player `json:"player,omitempty"`
 	Game   *entity.Game   `json:"game,omitempty"`
 	Error  string         `json:"error,omitempty"`
-	Cell   int            `json:"cell,omitempty"`
+	Cell   *int           `json:"cell,omitempty"`
 }
 
-func (that *Server) sendMessage(bufrw bufio.ReadWriter, action string, payload ResponsePayload) error {
+func (that *Server) sendMessage(bufrw *bufio.ReadWriter, action string, payload Payload) error {
 	response := Message{
 		Action:  action,
 		Payload: json.RawMessage(mustMarshal(payload)),
@@ -63,7 +69,7 @@ func mustMarshal(v interface{}) []byte {
 	return b
 }
 
-func writeFrame(bufrw bufio.ReadWriter, frameData frame) error {
+func writeFrame(bufrw *bufio.ReadWriter, frameData frame) error {
 	buf := make([]byte, 2)
 	buf[0] |= frameData.opCode
 
@@ -101,7 +107,7 @@ func writeFrame(bufrw bufio.ReadWriter, frameData frame) error {
 }
 
 func (that *Server) readRequest(bufrw *bufio.ReadWriter) ([]byte, error) {
-	header, err := readHeader(*bufrw)
+	header, err := readHeader(bufrw)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +120,7 @@ func (that *Server) readRequest(bufrw *bufio.ReadWriter) ([]byte, error) {
 	return payload, nil
 }
 
-func readHeader(bufrw bufio.ReadWriter) ([]byte, error) {
+func readHeader(bufrw *bufio.ReadWriter) ([]byte, error) {
 	header := make([]byte, 2)
 	_, err := bufrw.Read(header)
 	if err != nil {
@@ -124,81 +130,63 @@ func readHeader(bufrw bufio.ReadWriter) ([]byte, error) {
 }
 
 func readPayload(bufrw *bufio.ReadWriter, header []byte) ([]byte, error) {
-	finBit := header[0] >> 7
-	opCode := header[0] & 0x0f
-	maskBit := header[1] >> 7
-	payloadLen := header[1] & 0x7f
+	fin := (header[0] & 0x80) != 0
+	opcode := header[0] & 0x0F
+	mask := (header[1] & 0x80) != 0
+	payloadLen := uint64(header[1] & 0x7F)
 
-	size, _, err := readPayloadLength(*bufrw, payloadLen)
-	if err != nil {
-		return nil, err
-	}
-
-	mask, err := readMask(*bufrw, maskBit)
-	if err != nil {
-		return nil, err
-	}
-
-	payload, err := readData(*bufrw, size, mask)
-	if err != nil {
-		return nil, err
-	}
-
-	if finBit == 1 || opCode == 8 {
-		return payload, nil
-	}
-
-	return nil, nil
-}
-
-func readPayloadLength(bufrw bufio.ReadWriter, payloadLen byte) (uint64, int, error) {
-	if payloadLen < 126 {
-		return uint64(payloadLen), 0, nil
-	}
-
+	// Чтение расширенной длины полезной нагрузки
 	if payloadLen == 126 {
-		length := make([]byte, 2)
-		_, err := bufrw.Read(length)
+		extended := make([]byte, 2)
+		_, err := io.ReadFull(bufrw, extended)
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed to read payload length: %w", err)
+			return nil, fmt.Errorf("failed to read extended payload length: %w", err)
 		}
-		return uint64(binary.BigEndian.Uint16(length)), 2, nil
+		payloadLen = uint64(binary.BigEndian.Uint16(extended))
+	} else if payloadLen == 127 {
+		extended := make([]byte, 8)
+		_, err := io.ReadFull(bufrw, extended)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read extended payload length: %w", err)
+		}
+		payloadLen = binary.BigEndian.Uint64(extended)
 	}
 
-	length := make([]byte, 8)
-	_, err := bufrw.Read(length)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to read payload length: %w", err)
+	// Чтение маскирующего ключа
+	var maskingKey []byte
+	if mask {
+		maskingKey = make([]byte, 4)
+		_, err := io.ReadFull(bufrw, maskingKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read masking key: %w", err)
+		}
 	}
 
-	return binary.BigEndian.Uint64(length), 8, nil
-}
-
-func readMask(bufrw bufio.ReadWriter, maskBit byte) ([]byte, error) {
-	if maskBit == 0 {
-		return nil, nil
-	}
-
-	mask := make([]byte, 4)
-	_, err := bufrw.Read(mask)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read mask: %w", err)
-	}
-
-	return mask, nil
-}
-
-func readData(bufrw bufio.ReadWriter, size uint64, mask []byte) ([]byte, error) {
-	payload := make([]byte, size)
+	// Чтение полезной нагрузки
+	payload := make([]byte, payloadLen)
 	_, err := io.ReadFull(bufrw, payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read payload: %w", err)
 	}
 
-	if mask != nil {
+	// Применение маски
+	if mask {
 		for i := range payload {
-			payload[i] ^= mask[i%4]
+			payload[i] ^= maskingKey[i%4]
 		}
+	}
+
+	// Обработка опкодов
+	if opcode == 8 {
+		// Фрейм закрытия соединения
+		return nil, io.EOF
+	} else if opcode != 1 {
+		return nil, fmt.Errorf("%w: %d", ErrUnsupportedOpcode, opcode)
+	}
+
+	if !fin {
+		// Обработка фрагментированных сообщений, если необходимо
+		return nil, ErrFragmentedMessagesNotSupported
 	}
 
 	return payload, nil

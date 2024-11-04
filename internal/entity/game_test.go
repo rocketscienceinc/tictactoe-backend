@@ -43,13 +43,13 @@ func TestGameStatusMethods(t *testing.T) {
 	})
 }
 
-func TestGame_IsActive(t *testing.T) {
+func TestGame_ConfirmOngoingState(t *testing.T) {
 	t.Run("Returns nil when game is ongoing", func(t *testing.T) {
 		// Given: a game with StatusOngoing
 		game := &Game{Status: StatusOngoing}
 
 		// When: checking if the game is active
-		err := game.IsActive()
+		err := game.ConfirmOngoingState()
 
 		// Then: it should return nil error
 		assert.NoError(t, err)
@@ -60,7 +60,7 @@ func TestGame_IsActive(t *testing.T) {
 		game := &Game{Status: StatusWaiting}
 
 		// When: checking if the game is active
-		err := game.IsActive()
+		err := game.ConfirmOngoingState()
 
 		// Then: it should return ErrGameIsNotStarted
 		assert.ErrorIs(t, err, apperror.ErrGameIsNotStarted)
@@ -71,7 +71,7 @@ func TestGame_IsActive(t *testing.T) {
 		game := &Game{Status: StatusFinished}
 
 		// When: checking if the game is active
-		err := game.IsActive()
+		err := game.ConfirmOngoingState()
 
 		// Then: it should return ErrGameFinished
 		assert.ErrorIs(t, err, apperror.ErrGameFinished)
@@ -82,7 +82,7 @@ func TestGame_IsActive(t *testing.T) {
 		game := &Game{Status: "unknown"}
 
 		// When: checking if the game is active
-		err := game.IsActive()
+		err := game.ConfirmOngoingState()
 
 		// Then: it should return an error
 		require.Error(t, err)
@@ -260,7 +260,7 @@ func TestGame_MakeTurn(t *testing.T) {
 		err = game.MakeTurn(PlayerO, 0)
 
 		// Then: An ErrCellOccupied error should be returned
-		require.ErrorIs(t, err, ErrCellOccupied)
+		require.ErrorIs(t, err, apperror.ErrCellOccupied)
 
 		// And: The game state should remain unchanged
 		expectedGame := &Game{

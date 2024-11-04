@@ -3,6 +3,7 @@ package entity
 import (
 	"errors"
 	"fmt"
+	"math/rand"
 
 	"github.com/rocketscienceinc/tittactoe-backend/internal/apperror"
 )
@@ -22,10 +23,10 @@ const (
 const (
 	PublicType  = "public"
 	PrivateType = "private"
+	WithBotType = "bot"
 )
 
 var (
-	ErrCellOccupied      = errors.New("cell is already occupied")
 	ErrInvalidCell       = errors.New("invalid cell index")
 	ErrUnknownGameStatus = errors.New("unknown game status")
 
@@ -107,7 +108,7 @@ func (that *Game) MakeTurn(playerMark string, cell int) error {
 	}
 
 	if that.Board[cell] != EmptyCell {
-		return ErrCellOccupied
+		return apperror.ErrCellOccupied
 	}
 
 	that.Board[cell] = playerMark
@@ -136,7 +137,7 @@ func (that *Game) IsWaiting() bool {
 	return that.Status == StatusWaiting
 }
 
-func (that *Game) IsActive() error {
+func (that *Game) ConfirmOngoingState() error {
 	switch {
 	case that.IsWaiting():
 		return apperror.ErrGameIsNotStarted
@@ -151,4 +152,15 @@ func (that *Game) IsActive() error {
 
 func (that *Game) IsPublic() bool {
 	return that.Type == PublicType
+}
+
+func (that *Game) IsWithBot() bool {
+	return that.Type == WithBotType
+}
+
+func (that *Game) GetRandomMarks() (string, string) {
+	if rand.Intn(2) == 0 { //nolint: gosec // it's ok
+		return PlayerX, PlayerO
+	}
+	return PlayerO, PlayerX
 }
