@@ -2,7 +2,8 @@
 
 ## Overview
 
-This project is a backend implementation for a Tic Tac Toe game using Go. It provides an HTTP server for basic interactions and a WebSocket server for real-time communication.
+This project is a backend implementation for a Tic Tac Toe game using Go. It provides an HTTP server for basic
+interactions and a WebSocket server for real-time communication.
 
 ## Features
 

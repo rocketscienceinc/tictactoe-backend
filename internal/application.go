@@ -11,17 +11,18 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rocketscienceinc/tittactoe-backend/internal/config"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/repository"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/repository/storage"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/repository/storage/sqlite"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/service"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/usecase"
-	"github.com/rocketscienceinc/tittactoe-backend/transport/rest"
-	"github.com/rocketscienceinc/tittactoe-backend/transport/websocket"
-)
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 
-const sqliteStoragePath = "data/sqlite/storage.db"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/config"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/repository"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/repository/storage"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/repository/storage/sqlite"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/service"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/usecase"
+	"github.com/rocketscienceinc/tictactoe-backend/transport/rest"
+	"github.com/rocketscienceinc/tictactoe-backend/transport/websocket"
+)
 
 var ErrAddrNotFound = errors.New("redis address string is empty")
 
@@ -52,7 +53,7 @@ func RunApp(logger *slog.Logger, conf *config.Config) error {
 	}()
 
 	// create a new sqlite storage
-	sqliteStorage, err := sqlite.New(sqliteStoragePath)
+	sqliteStorage, err := sqlite.New(conf.SQLiteStoragePath)
 	if err != nil {
 		panic(fmt.Errorf("can't connect to sqlite storage: %w", err))
 	}
@@ -73,32 +74,39 @@ func RunApp(logger *slog.Logger, conf *config.Config) error {
 
 	gameUseCase := usecase.NewGameUseCase(playerService, gameService, gamePlayService)
 
-	wsHandler := websocket.New(log, gameUseCase)
+	authService := service.NewAuthService(conf.Security.SecretKey)
+	userUseCase := usecase.NewUserUseCase(userRepo)
 
-	userService := service.NewUserService(userRepo)
-	authService := service.NewAuthService("pingo")
+	e := echo.New()
 
-	restHandlers := rest.NewHandlers(conf.GoogleOAuth.RedirectURL, conf.GoogleOAuth.ClientID, conf.GoogleOAuth.ClientSecret, userService, authService)
+	e.Use(middleware.Logger())
 
-	mux := http.NewServeMux()
+	// secretKey := []byte(conf.Security.SecretKey)
+	//if len(secretKey) < 32 {
+	//	return fmt.Errorf("secret key must be at least 32 bytes long")
+	//}
+	//
+	//store := sessions.NewCookieStore(secretKey)
+	//store.Options = &sessions.Options{
+	//	Path:     "/",
+	//	MaxAge:   86400 * 1,
+	//	HttpOnly: true,
+	//	Secure:   false,
+	//	SameSite: http.SameSiteStrictMode,
+	//}
 
-	mux.HandleFunc("/api/ping", restHandlers.PingHandler)
-	mux.HandleFunc("/api/auth/google/login", restHandlers.GoogleLogin)
-	mux.HandleFunc("/api/auth/google/callback", restHandlers.GoogleCallback)
+	apiGroup := e.Group("/api")
+	// apiGroup.Use(session.Middleware(sessions.NewCookieStore([]byte(conf.Security.SecretKey))))
 
-	mux.HandleFunc("/ws", wsHandler.ServeHTTP)
+	rest.NewServer(log, conf, authService, userUseCase, apiGroup) // ToDo: Register()
+	wsHandlers := websocket.New(log, gameUseCase)
 
-	srv := &http.Server{
-		Addr:         ":" + conf.HTTPPort,
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  30 * time.Second,
-	}
+	e.GET("/ws", wsHandlers.HandleConnection) // ToDo: NOT WORKED
 
 	go func() {
+		addr := fmt.Sprintf(":%s", conf.HTTPPort)
 		log.Info("Starting HTTP and WebSocket server on", "port", conf.HTTPPort)
-		if err = srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err = e.Start(addr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			panic(fmt.Errorf("failed to start server: %w", err))
 		}
 	}()
@@ -108,7 +116,7 @@ func RunApp(logger *slog.Logger, conf *config.Config) error {
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
-	if err = srv.Shutdown(shutdownCtx); err != nil {
+	if err = e.Shutdown(shutdownCtx); err != nil {
 		panic(fmt.Errorf("server shutdown error: %w", err))
 	}
 

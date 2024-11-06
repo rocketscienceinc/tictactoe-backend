@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/rocketscienceinc/tittactoe-backend/internal/apperror"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/apperror"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/entity"
 )
 
 type UserRepository interface {
@@ -43,7 +43,7 @@ func (that *userRepository) Find(ctx context.Context, email string) (*entity.Use
 
 	err := that.conn.QueryRowContext(ctx, query, email).Scan(&user.Email)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, apperror.ErrNotSavedUser
+		return nil, apperror.ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("can't find user: %w", err)

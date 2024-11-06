@@ -2,11 +2,18 @@ log-lever: info
 
 http-port: "9090"
 
+sqlite-storage-path: "./storage.db"
+
 redis:
   host: "localhost"
   port: "6379"
 
 google-oauth:
-  redirect-url:
   client-id:
   client-secret:
+  redirect-url: "http://localhost:9090/api/auth/google/callback"
+  scopes:
+    - "email"
+
+security:
+  secret-key: "never gonna give u up"

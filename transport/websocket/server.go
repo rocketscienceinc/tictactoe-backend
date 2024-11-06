@@ -1,24 +1,27 @@
 package websocket
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"log/slog"
-	"net/http"
+	"net"
+	"sync"
 
-	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/pkg"
+	"github.com/labstack/echo/v4"
+	"golang.org/x/net/websocket"
+
+	"github.com/rocketscienceinc/tictactoe-backend/internal/entity"
 )
 
 type gameUseCase interface {
 	GetOrCreatePlayer(ctx context.Context, playerID string) (*entity.Player, error)
-
 	GetOrCreateGame(ctx context.Context, playerID, gameType string) (*entity.Game, error)
 	GetGameByPlayerID(ctx context.Context, playerID string) (*entity.Game, error)
 	JoinGameByID(ctx context.Context, gameID, playerID string) (*entity.Game, error)
 	JoinWaitingPublicGame(ctx context.Context, playerID string) (*entity.Game, error)
-
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
 
@@ -26,18 +29,24 @@ type Server struct {
 	logger      *slog.Logger
 	gameUseCase gameUseCase
 
-	handlers map[string]func(ctx context.Context, message *Message, writer *bufio.ReadWriter) error
+	handlers    map[string]func(ctx context.Context, message *IncomingMessage, ws *websocket.Conn) error
+	connections map[string]*websocket.Conn
+	rooms       map[string][2]Player
+	connMutex   sync.RWMutex
+}
 
-	connections map[string]*bufio.ReadWriter
+type Player struct {
+	conn *websocket.Conn
+	id   string
 }
 
 func New(logger *slog.Logger, gameUseCase gameUseCase) *Server {
 	server := &Server{
 		logger:      logger,
 		gameUseCase: gameUseCase,
-
-		handlers:    make(map[string]func(context.Context, *Message, *bufio.ReadWriter) error),
-		connections: make(map[string]*bufio.ReadWriter),
+		handlers:    make(map[string]func(context.Context, *IncomingMessage, *websocket.Conn) error),
+		connections: make(map[string]*websocket.Conn),
+		rooms:       make(map[string][2]Player),
 	}
 
 	server.handlers["connect"] = server.handleConnect
@@ -45,86 +54,127 @@ func New(logger *slog.Logger, gameUseCase gameUseCase) *Server {
 	server.handlers["game:join"] = server.handleJoinGame
 	server.handlers["game:turn"] = server.handleGameTurn
 
+	server.rooms["1"] = [2]Player{
+		{id: "1"},
+		{id: "2"},
+	}
+
+	server.rooms["2"] = [2]Player{
+		{id: "5"},
+		{id: "4"},
+	}
+
 	return server
 }
 
-func (that *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	that.upgradeToWebSocket(r.Context(), w, r)
-}
+func (that *Server) HandleConnection(c echo.Context) error {
+	log := that.logger.With("method", "HandleConnection")
+	wsHandler := websocket.Handler(func(ws *websocket.Conn) {
+		defer ws.Close()
+		log.Info("Websocket connected")
 
-// upgradeToWebSocket - upgrades the connection to WebSocket.
-func (that *Server) upgradeToWebSocket(ctx context.Context, writer http.ResponseWriter, req *http.Request) {
-	log := that.logger.With("method", "upgradeConnection")
+		currentPlayerID := ""
 
-	if req.Header.Get("Upgrade") != "websocket" {
-		http.Error(writer, "not a websocket upgrade", http.StatusBadRequest)
-		return
-	}
+		for roomID, players := range that.rooms {
+			for _, player := range players {
+				if player.id == currentPlayerID {
+					fmt.Println("player room id:", roomID)
+					break
+				}
+			}
+		}
 
-	wsKey := req.Header.Get("Sec-WebSocket-Key")
-	acceptKey := pkg.GenerateAcceptKey(wsKey)
+		that.connections[ws.Request().RemoteAddr] = ws
+		for _, conn := range that.connections {
+			if conn.Request().RemoteAddr == ws.Request().RemoteAddr {
+				continue
+			}
 
-	writer.Header().Set("Upgrade", "websocket")
-	writer.Header().Set("Connection", "Upgrade")
-	writer.Header().Set("Sec-WebSocket-Accept", acceptKey)
-	writer.WriteHeader(http.StatusSwitchingProtocols)
+			if err := websocket.Message.Send(conn, fmt.Sprintf("client %s was connected", ws.Request().RemoteAddr)); err != nil {
+				log.Error("Failed to send welcome message", "error", err)
+			}
+		}
 
-	hijacker, ok := writer.(http.Hijacker)
-	if !ok {
-		log.Error("web server does not support hijacking", "error", http.StatusText(http.StatusInternalServerError))
-		return
-	}
+		that.handleMessages(c.Request().Context(), ws)
+	})
+	wsHandler.ServeHTTP(c.Response(), c.Request())
 
-	conn, bufrw, err := hijacker.Hijack()
-	if err != nil {
-		log.Error("failed to hijack connection", "error", err)
-		return
-	}
-
-	defer conn.Close()
-
-	log.Info("WebSocket connection established")
-
-	if err = that.handleMessages(ctx, bufrw); err != nil {
-		log.Error("error handling messages", "error", err)
-	}
+	return nil
 }
 
 // handleMessages - processes messages from the client.
-func (that *Server) handleMessages(ctx context.Context, bufrw *bufio.ReadWriter) error {
+// ToDo: Need to move user creation to rest api, in order to track connections and remove user from connections.
+func (that *Server) handleMessages(ctx context.Context, ws *websocket.Conn) {
 	log := that.logger.With("method", "HandleMessages")
 
 	for {
-		reqBody, err := that.readRequest(bufrw)
-		if err != nil {
-			log.Error("error reading message", "error", err)
-			return err
-		}
+		var message IncomingMessage
+		if err := websocket.JSON.Receive(ws, &message); err != nil {
+			// if client closed connection
+			if errors.Is(err, io.EOF) {
+				log.Info("websocket connection closed by client")
+				break
+			}
 
-		var message Message
-		if err = json.Unmarshal(reqBody, &message); err != nil {
-			log.Error("failed to unmarshal message", "error", err)
-			continue
+			// if network error
+			if errors.Is(err, net.ErrClosed) {
+				log.Info("network connection closed")
+				break
+			}
+
+			log.Error("failed to receive message", "error", err)
+			break
 		}
 
 		handler, ok := that.handlers[message.Action]
 		if !ok {
-			log.Error("action handler not found")
-
-			payloadResp := ResponsePayload{
-				Error: "action handler not found",
+			log.Error("action handler not found", "action", message.Action)
+			if err := that.sendError(ws, message.Action, fmt.Sprintf("action handler not found action: %s", message.Action)); err != nil {
+				break
 			}
-
-			err = that.sendMessage(*bufrw, message.Action, payloadResp)
-			if err != nil {
-				log.Error("failed to send message", "error", err)
-			}
-
 			continue
 		}
 
-		if err = handler(ctx, &message, bufrw); err != nil {
+		if err := handler(ctx, &message, ws); err != nil {
 			log.Error("invalid handle message", "error", err)
+			continue
 		}
 	}
+}
+
+func (that *Server) sendMessage(ws *websocket.Conn, action string, payload Payload) error {
+	response := OutgoingMessage{
+		Action:  action,
+		Payload: payload,
+	}
+
+	if err := websocket.JSON.Send(ws, response); err != nil {
+		that.logger.Error("failed to send message", "error", err)
+		return err
+	}
+	return nil
+}
+
+func (that *Server) sendError(ws *websocket.Conn, action, errorMsg string) error {
+	payload := Payload{
+		Error: errorMsg,
+	}
+	return that.sendMessage(ws, action, payload)
+}
+
+type OutgoingMessage struct {
+	Action  string  `json:"action"`
+	Payload Payload `json:"payload,omitempty"`
+}
+
+type IncomingMessage struct {
+	Action  string          `json:"action"`
+	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
+type Payload struct {
+	Player *entity.Player `json:"player,omitempty"`
+	Game   *entity.Game   `json:"game,omitempty"`
+	Error  string         `json:"error,omitempty"`
+	Cell   int            `json:"cell,omitempty"`
 }

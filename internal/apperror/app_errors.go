@@ -9,5 +9,5 @@ var (
 	ErrNoActiveGames    = errors.New("no active games")
 	ErrCellOccupied     = errors.New("cell is already occupied")
 
-	ErrNotSavedUser = errors.New("not saved user")
+	ErrNotFound = errors.New("not found")
 )

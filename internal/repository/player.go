@@ -7,7 +7,8 @@ import (
 	"fmt"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
+
+	"github.com/rocketscienceinc/tictactoe-backend/internal/entity"
 )
 
 var ErrPlayerNotFound = errors.New("player not found")
