@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/pkg"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/entity"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/pkg"
 )
 
 type PlayerService interface {

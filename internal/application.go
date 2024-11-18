@@ -11,13 +11,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rocketscienceinc/tittactoe-backend/internal/config"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/repository"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/repository/storage"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/service"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/usecase"
-	"github.com/rocketscienceinc/tittactoe-backend/transport/rest"
-	"github.com/rocketscienceinc/tittactoe-backend/transport/websocket"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/config"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/repository"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/repository/storage"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/service"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/usecase"
+	"github.com/rocketscienceinc/tictactoe-backend/transport/rest"
+	"github.com/rocketscienceinc/tictactoe-backend/transport/websocket"
 )
 
 var ErrAddrNotFound = errors.New("redis address string is empty")
@@ -37,7 +37,7 @@ func RunApp(logger *slog.Logger, conf *config.Config) error {
 		return ErrAddrNotFound
 	}
 
-	redisStorage, err := storage.New(ctx, redisAddrString)
+	redisStorage, err := storage.NewRedisStorage(ctx, redisAddrString)
 	if err != nil {
 		return fmt.Errorf("could not connect to redis storage: %w", err)
 	}
@@ -48,22 +48,43 @@ func RunApp(logger *slog.Logger, conf *config.Config) error {
 		}
 	}()
 
+	// create a new sqlite storage
+	sqliteStorage, err := storage.NewSQLiteStorage(conf.SQLiteStoragePath)
+	if err != nil {
+		panic(fmt.Errorf("can't connect to sqlite storage: %w", err))
+	}
+
+	// init sqlite storage
+	if err = sqliteStorage.Init(ctx); err != nil {
+		panic(fmt.Errorf("can't init sqlite storage: %w", err))
+	}
+
 	playerRepo := repository.NewPlayerRepository(redisStorage.Connection)
 	gameRepo := repository.NewGameRepository(log, redisStorage.Connection)
+	userRepo := repository.NewUserRepository(sqliteStorage.Connection)
 
 	playerService := service.NewPlayerService(playerRepo)
 	gameService := service.NewGameService(gameRepo)
 	botService := service.NewBotService()
 	gamePlayService := service.NewGamePlayService(log, playerService, gameService, botService)
+	authService := service.NewAuthService(conf.JWTSecretKey)
 
 	gameUseCase := usecase.NewGameUseCase(playerService, gameService, gamePlayService)
+	userUseCase := usecase.NewUserUseCase(userRepo)
 
-	restHandler := rest.NewHandler()
+	pingHandler := rest.NewPingHandler()
+	authHandler := rest.NewAuthHandler(log, conf, userUseCase, authService)
 	wsHandler := websocket.New(log, gameUseCase)
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/api/ping", restHandler.PingHandler)
+	mux.HandleFunc("/api/ping", pingHandler.PingHandler)
+	mux.HandleFunc("/api/auth/google/login", authHandler.GoogleLogin)
+	mux.HandleFunc("/api/auth/google/callback", authHandler.GoogleCallback)
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 
 	mux.HandleFunc("/ws", wsHandler.ServeHTTP)
 

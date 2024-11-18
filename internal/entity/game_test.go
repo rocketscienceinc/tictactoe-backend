@@ -3,9 +3,10 @@ package entity
 import (
 	"testing"
 
-	"github.com/rocketscienceinc/tittactoe-backend/internal/apperror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/rocketscienceinc/tictactoe-backend/internal/apperror"
 )
 
 func TestGameStatusMethods(t *testing.T) {

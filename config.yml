@@ -5,3 +5,13 @@ http-port: "9090"
 redis:
   host: "localhost"
   port: "6379"
+
+google-oauth:
+  client-id: ""
+  client-secret: ""
+  redirect-url: ""
+  scopes:
+
+sqlite-storage-path: "./storage.db"
+
+jwt-secret-key: ""

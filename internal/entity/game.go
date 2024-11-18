@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/rocketscienceinc/tittactoe-backend/internal/apperror"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/apperror"
 )
 
 const (

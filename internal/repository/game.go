@@ -8,8 +8,9 @@ import (
 	"log/slog"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/apperror"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
+
+	"github.com/rocketscienceinc/tictactoe-backend/internal/apperror"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/entity"
 )
 
 var ErrGameNotFound = errors.New("game not found")

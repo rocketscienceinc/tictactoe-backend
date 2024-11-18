@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/entity"
 )
 
 var ErrGameAlreadyExists = errors.New("game already exists")
