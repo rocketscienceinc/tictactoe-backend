@@ -3,10 +3,11 @@ package repository
 import (
 	"testing"
 
-	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
-	"github.com/rocketscienceinc/tittactoe-backend/testing/suite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/rocketscienceinc/tictactoe-backend/internal/entity"
+	"github.com/rocketscienceinc/tictactoe-backend/testing/suite"
 )
 
 func TestPlayerRepository_CreateOrUpdate(t *testing.T) {

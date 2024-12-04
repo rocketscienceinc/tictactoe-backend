@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/rocketscienceinc/tittactoe-backend/internal/apperror"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/apperror"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/entity"
 )
 
 type GameUseCase interface {

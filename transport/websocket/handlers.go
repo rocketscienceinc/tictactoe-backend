@@ -7,8 +7,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/rocketscienceinc/tittactoe-backend/internal/apperror"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/apperror"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/entity"
 )
 
 func (that *Server) handleConnect(ctx context.Context, msg *Message, bufrw *bufio.ReadWriter) error {
@@ -35,24 +35,7 @@ func (that *Server) handleConnect(ctx context.Context, msg *Message, bufrw *bufi
 	that.connections[player.ID] = bufrw
 
 	if player.GameID != "" {
-		game, err := that.gameUseCase.GetGameByPlayerID(ctx, player.ID)
-		if err != nil {
-			log.Info("failed to get the game", "game", player.GameID)
-			return that.sendErrorResponse(bufrw, msg.Action, "failed to get the game")
-		}
-
-		payloadResp := Payload{
-			Player: player,
-			Game:   game,
-		}
-		payloadResp.Game.Players = nil
-		payloadResp.Game.Type = ""
-
-		if err = that.sendMessage(bufrw, msg.Action, payloadResp); err != nil {
-			return fmt.Errorf("failed to send response: %w", err)
-		}
-
-		return nil
+		return that.handleExistingGame(ctx, bufrw, msg, player)
 	}
 
 	payloadResp := Payload{
@@ -66,6 +49,25 @@ func (that *Server) handleConnect(ctx context.Context, msg *Message, bufrw *bufi
 	log.Info("successfully connected player")
 
 	return nil
+}
+
+// handleExistingGame processes a player already in a game.
+func (that *Server) handleExistingGame(ctx context.Context, bufrw *bufio.ReadWriter, msg *Message, player *entity.Player) error {
+	log := that.logger.With("method", "handleExistingGame")
+
+	game, err := that.gameUseCase.GetGameByPlayerID(ctx, player.ID)
+	if err != nil {
+		log.Error("failed to get game", "gameID", player.GameID, "error", err)
+		return that.sendErrorResponse(bufrw, msg.Action, "failed to get the game")
+	}
+
+	// Mask sensitive fields
+	payload := Payload{
+		Player: player,
+		Game:   maskGameDetails(game),
+	}
+
+	return that.sendMessage(bufrw, msg.Action, payload)
 }
 
 func (that *Server) handleNewGame(ctx context.Context, msg *Message, bufrw *bufio.ReadWriter) error {
@@ -113,17 +115,14 @@ func (that *Server) handleNewGame(ctx context.Context, msg *Message, bufrw *bufi
 	for _, player := range game.Players {
 		conn, ok := that.connections[player.ID]
 		if !ok {
-			log.Error("failed to find connection")
+			log.Warn("connection not found for player", "playerID", player.ID)
 			continue
 		}
 
 		payloadResp := Payload{
 			Player: player,
-			Game:   game,
+			Game:   maskGameDetails(game),
 		}
-
-		payloadResp.Game.Players = nil
-		payloadResp.Game.Type = ""
 
 		if err = that.sendMessage(conn, msg.Action, payloadResp); err != nil {
 			log.Error("failed to send game update", "error", err)
@@ -175,11 +174,8 @@ func (that *Server) handleJoinGame(ctx context.Context, msg *Message, bufrw *buf
 
 		payloadResp := Payload{
 			Player: player,
-			Game:   game,
+			Game:   maskGameDetails(game),
 		}
-
-		payloadResp.Game.Players = nil
-		payloadResp.Game.Type = ""
 
 		if err = that.sendMessage(conn, msg.Action, payloadResp); err != nil {
 			log.Error("failed to send game update", "error", err)
@@ -247,11 +243,8 @@ func (that *Server) handleGameTurn(ctx context.Context, msg *Message, bufrw *buf
 
 		payloadResp := Payload{
 			Player: player,
-			Game:   game,
+			Game:   maskGameDetails(game),
 		}
-
-		payloadResp.Game.Players = nil
-		payloadResp.Game.Type = ""
 
 		if err = that.sendMessage(conn, msg.Action, payloadResp); err != nil {
 			log.Error("failed to send game update", "error", err)
@@ -279,11 +272,8 @@ func (that *Server) handleGameFinished(action string, game *entity.Game) error {
 
 		payloadResp := Payload{
 			Player: player,
-			Game:   game,
+			Game:   maskGameDetails(game),
 		}
-
-		payloadResp.Game.Players = nil
-		payloadResp.Game.Type = ""
 
 		if err := that.sendMessage(conn, action, payloadResp); err != nil {
 			return fmt.Errorf("failed to send game finished message %s: %w", player.ID, err)
@@ -293,6 +283,13 @@ func (that *Server) handleGameFinished(action string, game *entity.Game) error {
 	log.Info("Game finished", "gameID", game.ID)
 
 	return nil
+}
+
+// maskGameDetails hides sensitive details from the game payload.
+func maskGameDetails(game *entity.Game) *entity.Game {
+	game.Players = nil
+	game.Type = ""
+	return game
 }
 
 func (that *Server) sendErrorResponse(bufrw *bufio.ReadWriter, action, errorMsg string) error {

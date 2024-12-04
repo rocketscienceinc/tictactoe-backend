@@ -11,7 +11,7 @@ type RedisStorage struct {
 	Connection *redis.Client
 }
 
-func New(ctx context.Context, addr string) (*RedisStorage, error) {
+func NewRedisStorage(ctx context.Context, addr string) (*RedisStorage, error) {
 	conn := redis.NewClient(&redis.Options{
 		Addr: addr,
 	})

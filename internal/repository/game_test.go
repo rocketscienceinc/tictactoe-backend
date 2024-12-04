@@ -5,11 +5,12 @@ import (
 	"os"
 	"testing"
 
-	"github.com/rocketscienceinc/tittactoe-backend/internal/apperror"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
-	"github.com/rocketscienceinc/tittactoe-backend/testing/suite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/rocketscienceinc/tictactoe-backend/internal/apperror"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/entity"
+	"github.com/rocketscienceinc/tictactoe-backend/testing/suite"
 )
 
 func getLogger() *slog.Logger {
