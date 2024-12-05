@@ -69,7 +69,7 @@ func RunApp(logger *slog.Logger, conf *config.Config) error {
 	gamePlayService := service.NewGamePlayService(log, playerService, gameService, botService)
 	authService := service.NewAuthService(conf.JWTSecretKey)
 
-	gameUseCase := usecase.NewGameUseCase(playerService, gameService, gamePlayService)
+	gameUseCase := usecase.NewGameUseCase(log, playerService, gameService, gamePlayService)
 	userUseCase := usecase.NewUserUseCase(userRepo)
 
 	pingHandler := rest.NewPingHandler()
