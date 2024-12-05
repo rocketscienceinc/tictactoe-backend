@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/rocketscienceinc/tictactoe-backend/internal/entity"
 	"github.com/rocketscienceinc/tictactoe-backend/internal/pkg"
@@ -28,6 +29,7 @@ type gameUseCase interface {
 	GetGameByPlayerID(ctx context.Context, playerID string) (*entity.Game, error)
 	CreateOrJoinToPublicGame(ctx context.Context, playerID, gameType string) (*entity.Game, error)
 	JoinGameByID(ctx context.Context, gameID, playerID string) (*entity.Game, error)
+	EndGame(ctx context.Context, game *entity.Game) error
 
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
@@ -38,7 +40,8 @@ type Server struct {
 
 	messageHandlers map[string]func(ctx context.Context, message *Message, w *bufio.ReadWriter) error
 
-	connections map[string]*bufio.ReadWriter
+	connections      map[string]*bufio.ReadWriter
+	connectionsMutex sync.RWMutex
 }
 
 func New(logger *slog.Logger, gameUseCase gameUseCase) *Server {
@@ -98,6 +101,10 @@ func (that *Server) upgradeToWebSocket(ctx context.Context, w http.ResponseWrite
 
 	if err = that.handleMessages(ctx, bufRW); err != nil {
 		log.Error("error handling messages", "error", err)
+	}
+
+	if errors.Is(err, io.EOF) {
+		that.handleDisconnect(bufRW)
 	}
 }
 
