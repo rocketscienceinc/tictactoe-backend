@@ -8,6 +8,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/rocketscienceinc/tictactoe-backend/internal/entity"
 	"github.com/rocketscienceinc/tictactoe-backend/internal/pkg"
@@ -19,6 +21,9 @@ const (
 	headerConnection         = "Connection"
 	headerSecWebSocketKey    = "Sec-WebSocket-Key"
 	headerSecWebSocketAccept = "Sec-WebSocket-Accept"
+
+	checkInterval     = 500 * time.Millisecond
+	disconnectTimeout = 10 * time.Second
 )
 
 type gameUseCase interface {
@@ -28,6 +33,7 @@ type gameUseCase interface {
 	GetGameByPlayerID(ctx context.Context, playerID string) (*entity.Game, error)
 	CreateOrJoinToPublicGame(ctx context.Context, playerID, gameType string) (*entity.Game, error)
 	JoinGameByID(ctx context.Context, gameID, playerID string) (*entity.Game, error)
+	EndGame(ctx context.Context, game *entity.Game) error
 
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
@@ -38,16 +44,20 @@ type Server struct {
 
 	messageHandlers map[string]func(ctx context.Context, message *Message, w *bufio.ReadWriter) error
 
-	connections map[string]*bufio.ReadWriter
+	connections         map[string]*bufio.ReadWriter
+	connectionsMutex    sync.RWMutex
+	disconnectedPlayers map[string]time.Time
+	disconnectedMutex   sync.RWMutex
 }
 
-func New(logger *slog.Logger, gameUseCase gameUseCase) *Server {
+func New(ctx context.Context, logger *slog.Logger, gameUseCase gameUseCase) *Server {
 	server := &Server{
 		logger:      logger,
 		gameUseCase: gameUseCase,
 
-		messageHandlers: make(map[string]func(context.Context, *Message, *bufio.ReadWriter) error),
-		connections:     make(map[string]*bufio.ReadWriter),
+		messageHandlers:     make(map[string]func(context.Context, *Message, *bufio.ReadWriter) error),
+		connections:         make(map[string]*bufio.ReadWriter),
+		disconnectedPlayers: make(map[string]time.Time),
 	}
 
 	server.messageHandlers["connect"] = server.handleConnect
@@ -55,7 +65,36 @@ func New(logger *slog.Logger, gameUseCase gameUseCase) *Server {
 	server.messageHandlers["game:join"] = server.handleJoinGame
 	server.messageHandlers["game:turn"] = server.handleGameTurn
 
+	go server.monitorDisconnectedPlayers(ctx)
+
 	return server
+}
+
+func (that *Server) monitorDisconnectedPlayers(ctx context.Context) {
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+
+	log := that.logger.With("method", "monitorDisconnectedPlayers")
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("context cancelled, stopping monitor goroutine")
+			return
+		case <-ticker.C:
+			that.disconnectedMutex.Lock()
+			now := time.Now()
+			for playerID, disconnectedAt := range that.disconnectedPlayers {
+				if now.Sub(disconnectedAt) > disconnectTimeout {
+					log.Info("player did not return in time, ending game", "playerID", playerID)
+					delete(that.disconnectedPlayers, playerID)
+
+					that.handleOpponentOut(ctx, playerID)
+				}
+			}
+			that.disconnectedMutex.Unlock()
+		}
+	}
 }
 
 func (that *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -98,6 +137,10 @@ func (that *Server) upgradeToWebSocket(ctx context.Context, w http.ResponseWrite
 
 	if err = that.handleMessages(ctx, bufRW); err != nil {
 		log.Error("error handling messages", "error", err)
+	}
+
+	if errors.Is(err, io.EOF) {
+		that.handleDisconnect(bufRW)
 	}
 }
 
