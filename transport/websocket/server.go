@@ -64,6 +64,7 @@ func New(ctx context.Context, logger *slog.Logger, gameUseCase gameUseCase) *Ser
 	server.messageHandlers["game:new"] = server.handleNewGame
 	server.messageHandlers["game:join"] = server.handleJoinGame
 	server.messageHandlers["game:turn"] = server.handleGameTurn
+	server.messageHandlers["game:leave"] = server.handleGameLeave
 
 	go server.monitorDisconnectedPlayers(ctx)
 
