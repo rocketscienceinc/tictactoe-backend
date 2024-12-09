@@ -16,7 +16,6 @@ type GamePlayService interface {
 	JoinWaitingPublicGame(ctx context.Context, playerID string) (*entity.Game, error)
 
 	GetOrCreateGame(ctx context.Context, player *entity.Player, gameType string) (*entity.Game, error)
-	CleanupGame(ctx context.Context, game *entity.Game)
 
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
@@ -212,22 +211,4 @@ func (that *gamePlayService) addBotToGame(ctx context.Context, game *entity.Game
 	}
 
 	return nil
-}
-
-func (that *gamePlayService) CleanupGame(ctx context.Context, game *entity.Game) {
-	log := that.logger.With("method", "cleanupGame", "gameID", game.ID)
-
-	if err := that.gameService.DeleteGame(ctx, game.ID); err != nil {
-		log.Error("failed to delete game", "error", err)
-	}
-
-	for _, player := range game.Players {
-		oldMark := player.Mark
-		player.GameID = ""
-		player.Mark = ""
-		if err := that.playerService.UpdatePlayer(ctx, player); err != nil {
-			log.Error("failed to update", "player", player.ID, "error", err)
-		}
-		player.Mark = oldMark
-	}
 }

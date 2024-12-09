@@ -10,8 +10,6 @@ import (
 
 const (
 	jwtExpirationDuration = 24 * time.Hour
-	tokenExpire           = "exp"
-	tokenIat              = "iat"
 )
 
 type AuthService interface {

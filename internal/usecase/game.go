@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/rocketscienceinc/tictactoe-backend/internal/apperror"
 	"github.com/rocketscienceinc/tictactoe-backend/internal/entity"
@@ -16,6 +17,7 @@ type GameUseCase interface {
 	GetGameByPlayerID(ctx context.Context, playerID string) (*entity.Game, error)
 	CreateOrJoinToPublicGame(ctx context.Context, playerID, gameType string) (*entity.Game, error)
 	JoinGameByID(ctx context.Context, gameID, playerID string) (*entity.Game, error)
+	EndGame(ctx context.Context, game *entity.Game) error
 
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
@@ -37,19 +39,20 @@ type gamePlayService interface {
 	JoinWaitingPublicGame(ctx context.Context, playerID string) (*entity.Game, error)
 
 	GetOrCreateGame(ctx context.Context, player *entity.Player, gameType string) (*entity.Game, error)
-	CleanupGame(ctx context.Context, game *entity.Game)
 
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
 
 type gameUseCase struct {
+	logger          *slog.Logger
 	playerService   playerService
 	gameService     gameService
 	gamePlayService gamePlayService
 }
 
-func NewGameUseCase(playerService playerService, gameService gameService, gamePlayService gamePlayService) GameUseCase {
+func NewGameUseCase(logger *slog.Logger, playerService playerService, gameService gameService, gamePlayService gamePlayService) GameUseCase {
 	return &gameUseCase{
+		logger:          logger.With("module", "usecase/game"),
 		playerService:   playerService,
 		gameService:     gameService,
 		gamePlayService: gamePlayService,
@@ -139,16 +142,33 @@ func (that *gameUseCase) MakeTurn(ctx context.Context, playerID string, cell int
 	}
 
 	if game.IsFinished() {
-		that.gamePlayService.CleanupGame(ctx, game)
-
-		return game, apperror.ErrGameFinished
-	}
-
-	if game.IsFinished() {
-		that.gamePlayService.CleanupGame(ctx, game)
+		if err = that.EndGame(ctx, game); err != nil {
+			return game, fmt.Errorf("failed to end game: %w", err)
+		}
 
 		return game, apperror.ErrGameFinished
 	}
 
 	return game, nil
+}
+
+func (that *gameUseCase) EndGame(ctx context.Context, game *entity.Game) error {
+	log := that.logger.With("method", "EndGame")
+
+	if err := that.gameService.DeleteGame(ctx, game.ID); err != nil {
+		return fmt.Errorf("failed to delete game: %w", err)
+	}
+
+	for _, player := range game.Players {
+		oldMark := player.Mark
+		player.GameID = ""
+		player.Mark = ""
+		if err := that.playerService.UpdatePlayer(ctx, player); err != nil {
+			log.Error("failed to update", "player", player.ID)
+			return fmt.Errorf("failed to update player: %w", err)
+		}
+		player.Mark = oldMark
+	}
+
+	return nil
 }
