@@ -8,9 +8,22 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sync"
+	"time"
 
-	"github.com/rocketscienceinc/tittactoe-backend/internal/entity"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/pkg"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/entity"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/pkg"
+)
+
+const (
+	headerUpgrade            = "Upgrade"
+	headerWebSocket          = "websocket"
+	headerConnection         = "Connection"
+	headerSecWebSocketKey    = "Sec-WebSocket-Key"
+	headerSecWebSocketAccept = "Sec-WebSocket-Accept"
+
+	checkInterval     = 500 * time.Millisecond
+	disconnectTimeout = 10 * time.Second
 )
 
 type gameUseCase interface {
@@ -20,6 +33,7 @@ type gameUseCase interface {
 	GetGameByPlayerID(ctx context.Context, playerID string) (*entity.Game, error)
 	CreateOrJoinToPublicGame(ctx context.Context, playerID, gameType string) (*entity.Game, error)
 	JoinGameByID(ctx context.Context, gameID, playerID string) (*entity.Game, error)
+	EndGame(ctx context.Context, game *entity.Game) error
 
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
 }
@@ -28,26 +42,60 @@ type Server struct {
 	logger      *slog.Logger
 	gameUseCase gameUseCase
 
-	handlers map[string]func(ctx context.Context, message *Message, writer *bufio.ReadWriter) error
+	messageHandlers map[string]func(ctx context.Context, message *Message, w *bufio.ReadWriter) error
 
-	connections map[string]*bufio.ReadWriter
+	connections         map[string]*bufio.ReadWriter
+	connectionsMutex    sync.RWMutex
+	disconnectedPlayers map[string]time.Time
+	disconnectedMutex   sync.RWMutex
 }
 
-func New(logger *slog.Logger, gameUseCase gameUseCase) *Server {
+func New(ctx context.Context, logger *slog.Logger, gameUseCase gameUseCase) *Server {
 	server := &Server{
 		logger:      logger,
 		gameUseCase: gameUseCase,
 
-		handlers:    make(map[string]func(context.Context, *Message, *bufio.ReadWriter) error),
-		connections: make(map[string]*bufio.ReadWriter),
+		messageHandlers:     make(map[string]func(context.Context, *Message, *bufio.ReadWriter) error),
+		connections:         make(map[string]*bufio.ReadWriter),
+		disconnectedPlayers: make(map[string]time.Time),
 	}
 
-	server.handlers["connect"] = server.handleConnect
-	server.handlers["game:new"] = server.handleNewGame
-	server.handlers["game:join"] = server.handleJoinGame
-	server.handlers["game:turn"] = server.handleGameTurn
+	server.messageHandlers["connect"] = server.handleConnect
+	server.messageHandlers["game:new"] = server.handleNewGame
+	server.messageHandlers["game:join"] = server.handleJoinGame
+	server.messageHandlers["game:turn"] = server.handleGameTurn
+	server.messageHandlers["game:leave"] = server.handleGameLeave
+
+	go server.monitorDisconnectedPlayers(ctx)
 
 	return server
+}
+
+func (that *Server) monitorDisconnectedPlayers(ctx context.Context) {
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+
+	log := that.logger.With("method", "monitorDisconnectedPlayers")
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("context cancelled, stopping monitor goroutine")
+			return
+		case <-ticker.C:
+			that.disconnectedMutex.Lock()
+			now := time.Now()
+			for playerID, disconnectedAt := range that.disconnectedPlayers {
+				if now.Sub(disconnectedAt) > disconnectTimeout {
+					log.Info("player did not return in time, ending game", "playerID", playerID)
+					delete(that.disconnectedPlayers, playerID)
+
+					that.handleOpponentOut(ctx, playerID)
+				}
+			}
+			that.disconnectedMutex.Unlock()
+		}
+	}
 }
 
 func (that *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -55,29 +103,30 @@ func (that *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // upgradeToWebSocket - upgrades the connection to WebSocket.
-func (that *Server) upgradeToWebSocket(ctx context.Context, writer http.ResponseWriter, req *http.Request) {
-	log := that.logger.With("method", "upgradeConnection")
+func (that *Server) upgradeToWebSocket(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	log := that.logger.With("method", "upgradeToWebSocket")
 
-	if req.Header.Get("Upgrade") != "websocket" {
-		http.Error(writer, "not a websocket upgrade", http.StatusBadRequest)
+	if r.Header.Get(headerUpgrade) != headerWebSocket {
+		log.Error("not upgrade to websocket")
+		http.Error(w, "not a websocket upgrade", http.StatusBadRequest)
 		return
 	}
 
-	wsKey := req.Header.Get("Sec-WebSocket-Key")
+	wsKey := r.Header.Get(headerSecWebSocketKey)
 	acceptKey := pkg.GenerateAcceptKey(wsKey)
 
-	writer.Header().Set("Upgrade", "websocket")
-	writer.Header().Set("Connection", "Upgrade")
-	writer.Header().Set("Sec-WebSocket-Accept", acceptKey)
-	writer.WriteHeader(http.StatusSwitchingProtocols)
+	w.Header().Set(headerUpgrade, headerWebSocket)
+	w.Header().Set(headerConnection, headerUpgrade)
+	w.Header().Set(headerSecWebSocketAccept, acceptKey)
+	w.WriteHeader(http.StatusSwitchingProtocols)
 
-	hijacker, ok := writer.(http.Hijacker)
+	hijacker, ok := w.(http.Hijacker)
 	if !ok {
 		log.Error("web server does not support hijacking", "error", http.StatusText(http.StatusInternalServerError))
 		return
 	}
 
-	conn, bufrw, err := hijacker.Hijack()
+	conn, bufRW, err := hijacker.Hijack()
 	if err != nil {
 		log.Error("failed to hijack connection", "error", err)
 		return
@@ -87,21 +136,25 @@ func (that *Server) upgradeToWebSocket(ctx context.Context, writer http.Response
 
 	log.Info("WebSocket connection established")
 
-	if err = that.handleMessages(ctx, bufrw); err != nil {
+	if err = that.handleMessages(ctx, bufRW); err != nil {
 		log.Error("error handling messages", "error", err)
+	}
+
+	if errors.Is(err, io.EOF) {
+		that.handleDisconnect(bufRW)
 	}
 }
 
 // handleMessages - processes messages from the client.
-func (that *Server) handleMessages(ctx context.Context, bufrw *bufio.ReadWriter) error {
+func (that *Server) handleMessages(ctx context.Context, bufRW *bufio.ReadWriter) error {
 	log := that.logger.With("method", "HandleMessages")
 
 	for {
-		reqBody, err := that.readRequest(bufrw)
+		reqBody, err := that.readRequest(bufRW)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				log.Info("Client closed the connection")
-				return nil
+				return io.EOF
 			}
 
 			log.Error("Error reading message", "error", err)
@@ -114,11 +167,11 @@ func (that *Server) handleMessages(ctx context.Context, bufrw *bufio.ReadWriter)
 			continue
 		}
 
-		handler, ok := that.handlers[message.Action]
+		handler, ok := that.messageHandlers[message.Action]
 		if !ok {
 			log.Error("action handler not found")
 
-			err = that.sendErrorResponse(bufrw, message.Action, "action handler not found")
+			err = that.sendErrorResponse(bufRW, message.Action, "action handler not found")
 			if err != nil {
 				log.Error("failed to send message", "error", err)
 			}
@@ -126,7 +179,7 @@ func (that *Server) handleMessages(ctx context.Context, bufrw *bufio.ReadWriter)
 			continue
 		}
 
-		if err = handler(ctx, &message, bufrw); err != nil {
+		if err = handler(ctx, &message, bufRW); err != nil {
 			log.Error("invalid handle message", "error", err)
 
 			continue

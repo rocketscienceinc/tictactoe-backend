@@ -64,8 +64,6 @@ linters:
     - funlen
     - wsl
     - nlreturn
-    - execinquery
-    - gomnd
     - exportloopref
     - mnd
 

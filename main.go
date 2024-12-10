@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	app "github.com/rocketscienceinc/tittactoe-backend/internal"
-	"github.com/rocketscienceinc/tittactoe-backend/internal/config"
+	app "github.com/rocketscienceinc/tictactoe-backend/internal"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/config"
 )
 
 var ErrUnknownLogLevel = errors.New("unknown log level")
