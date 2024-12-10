@@ -15,6 +15,7 @@ import (
 const (
 	gameStatusOpponentOut  = "opponent_out"
 	payloadActionGameLeave = "game:leave"
+	gameStatusLeave        = "leave"
 )
 
 func (that *Server) handleConnect(ctx context.Context, msg *Message, bufrw *bufio.ReadWriter) error {
@@ -284,6 +285,67 @@ func (that *Server) handleGameTurn(ctx context.Context, msg *Message, bufrw *buf
 	}
 
 	log.Info("Player made a turn")
+
+	return nil
+}
+
+func (that *Server) handleGameLeave(ctx context.Context, msg *Message, bufRW *bufio.ReadWriter) error {
+	log := that.logger.With("method", "handleGameLeave")
+
+	var payloadReq Payload
+
+	if err := json.Unmarshal(msg.Payload, &payloadReq); err != nil {
+		return fmt.Errorf("failed to unmarshal playload: %w", err)
+	}
+
+	if payloadReq.Player == nil {
+		log.Error("Player is missing in payload")
+		return that.sendErrorResponse(bufRW, msg.Action, "Player is required")
+	}
+
+	that.connectionsMutex.Lock()
+	that.connections[payloadReq.Player.ID] = bufRW
+	that.connectionsMutex.Unlock()
+
+	game, err := that.gameUseCase.GetGameByPlayerID(ctx, payloadReq.Player.ID)
+	if err != nil {
+		log.Error("failed to find game", "error", err)
+		return that.sendErrorResponse(bufRW, msg.Action, "game doesn't exist")
+	}
+
+	err = that.gameUseCase.EndGame(ctx, game)
+	if err != nil {
+		log.Error("failed to end game", "error", err)
+		return that.sendErrorResponse(bufRW, msg.Action, "game doesn't exist")
+	}
+
+	for _, player := range game.Players {
+		if player.IsBot() {
+			continue
+		}
+
+		that.connectionsMutex.Lock()
+		conn, ok := that.connections[player.ID]
+		that.connectionsMutex.Unlock()
+
+		if !ok {
+			log.Info("failed to find connection")
+			continue
+		}
+
+		payloadResp := Payload{
+			Player: player,
+			Game:   maskGameDetails(game),
+		}
+
+		payloadResp.Game.Status = gameStatusLeave
+
+		if err = that.sendMessage(conn, payloadActionGameLeave, payloadResp); err != nil {
+			log.Error("failed to send game update", "error", err)
+		}
+	}
+
+	log.Info("Player leaving")
 
 	return nil
 }
