@@ -7,24 +7,14 @@ import (
 )
 
 type Config struct {
-	LogLevel          string      `yaml:"log-level" env-default:"info"`
-	HTTPPort          string      `yaml:"http-port" env-default:"9090"`
-	Redis             Redis       `yaml:"redis"`
-	GoogleOAuth       GoogleOAuth `yaml:"google-oauth"`
-	SQLiteStoragePath string      `yaml:"sqlite-storage-path"`
-	JWTSecretKey      string      `yaml:"jwt-secret-key"`
+	LogLevel string `yaml:"log-level" env-default:"info"`
+	HTTPPort string `yaml:"http-port" env-default:"9090"`
+	Redis    Redis  `yaml:"redis"`
 }
 
 type Redis struct {
 	Host string `yaml:"host" env-default:"localhost"`
 	Port string `yaml:"port" env-default:"6379"`
-}
-
-type GoogleOAuth struct {
-	ClientID     string   `yaml:"client-id" env-default:""`
-	ClientSecret string   `yaml:"client-secret" env-default:""`
-	RedirectURL  string   `yaml:"redirect-url" env-default:""`
-	Scopes       []string `yaml:"scopes" env-default:""`
 }
 
 // MustLoad - load all configurations in config.yml file.
