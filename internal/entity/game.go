@@ -43,13 +43,14 @@ var (
 )
 
 type Game struct {
-	ID      string    `json:"id"`
-	Board   [9]string `json:"board"`
-	Winner  string    `json:"winner"`
-	Status  string    `json:"status"`
-	Turn    string    `json:"player_turn"`
-	Players []*Player `json:"players,omitempty"`
-	Type    string    `json:"type,omitempty"`
+	ID         string    `json:"id"`
+	Board      [9]string `json:"board"`
+	Winner     string    `json:"winner"`
+	Status     string    `json:"status"`
+	Turn       string    `json:"player_turn"`
+	Players    []*Player `json:"players,omitempty"`
+	Type       string    `json:"type,omitempty"`
+	Difficulty string    `json:"difficulty,omitempty"`
 }
 
 func NewGame(id, gameType string) *Game {
