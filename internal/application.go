@@ -14,7 +14,6 @@ import (
 	"github.com/rocketscienceinc/tictactoe-backend/internal/config"
 	"github.com/rocketscienceinc/tictactoe-backend/internal/repository"
 	"github.com/rocketscienceinc/tictactoe-backend/internal/repository/storage"
-	"github.com/rocketscienceinc/tictactoe-backend/internal/service"
 	"github.com/rocketscienceinc/tictactoe-backend/internal/usecase"
 	"github.com/rocketscienceinc/tictactoe-backend/transport/websocket"
 )
@@ -50,12 +49,7 @@ func RunApp(logger *slog.Logger, conf *config.Config) error {
 	playerRepo := repository.NewPlayerRepository(redisStorage.Connection)
 	gameRepo := repository.NewGameRepository(log, redisStorage.Connection)
 
-	playerService := service.NewPlayerService(playerRepo)
-	gameService := service.NewGameService(gameRepo)
-	botService := service.NewBotService()
-	gamePlayService := service.NewGamePlayService(log, playerService, gameService, botService)
-
-	gameUseCase := usecase.NewGameUseCase(log, playerService, gameService, gamePlayService)
+	gameUseCase := usecase.NewGameUseCase(playerRepo, gameRepo)
 
 	wsHandler := websocket.New(ctx, log, gameUseCase)
 

@@ -24,11 +24,17 @@ const (
 	PublicType  = "public"
 	PrivateType = "private"
 	WithBotType = "bot"
+
+	EasyDifficulty       = "easy"
+	HardDifficulty       = "hard"
+	InvincibleDifficulty = "invincible"
 )
 
 var (
 	ErrInvalidCell       = errors.New("invalid cell index")
 	ErrUnknownGameStatus = errors.New("unknown game status")
+	ErrBotNotFound       = errors.New("bot not found")
+	ErrNoAvailableMoves  = errors.New("no available moves")
 
 	WinCombos = [][3]int{
 		{0, 1, 2},
@@ -164,4 +170,133 @@ func (that *Game) GetRandomMarks() (string, string) {
 		return PlayerX, PlayerO
 	}
 	return PlayerO, PlayerX
+}
+
+func (that *Game) AddPlayer(player *Player) error {
+	if len(that.Players) >= 2 {
+		return apperror.ErrGameAlreadyExists
+	}
+
+	player.GameID = that.ID
+	if len(that.Players) == 0 {
+		player.Mark = PlayerX
+	} else {
+		player.Mark = PlayerO
+	}
+
+	that.Players = append(that.Players, player)
+	that.Status = StatusOngoing
+
+	return nil
+}
+
+func (that *Game) BotMakeTurn() error {
+	botPlayer := that.GetBotPlayer()
+	if botPlayer == nil {
+		return ErrBotNotFound
+	}
+
+	availableCells := that.getAvailableCells()
+	if len(availableCells) == 0 {
+		return ErrNoAvailableMoves
+	}
+
+	chosenCell := that.selectBotMove(botPlayer.Mark, availableCells)
+
+	if err := that.MakeTurn(botPlayer.Mark, chosenCell); err != nil {
+		return fmt.Errorf("bot failed to make turn: %w", err)
+	}
+
+	return nil
+}
+
+func (that *Game) GetBotPlayer() *Player {
+	for _, player := range that.Players {
+		if player.IsBot() {
+			return player
+		}
+	}
+	return nil
+}
+
+func (that *Game) getAvailableCells() []int {
+	availableCells := []int{}
+	for i, cell := range that.Board {
+		if cell == EmptyCell {
+			availableCells = append(availableCells, i)
+		}
+	}
+	return availableCells
+}
+
+func (that *Game) selectBotMove(mark string, available []int) int {
+	difficulty := that.Difficulty
+	if difficulty == "" {
+		difficulty = EasyDifficulty
+	}
+
+	switch difficulty {
+	case EasyDifficulty:
+		return that.easyStrategy(available)
+	case HardDifficulty:
+		if winMove := that.findWinningMove(mark); winMove != -1 {
+			return winMove
+		}
+
+		oppMark := PlayerO
+		if mark == PlayerO {
+			oppMark = PlayerX
+		}
+		if blockMove := that.findWinningMove(oppMark); blockMove != -1 {
+			return blockMove
+		}
+
+		return that.easyStrategy(available)
+	case InvincibleDifficulty:
+		if winMove := that.findWinningMove(mark); winMove != -1 {
+			return winMove
+		}
+
+		oppMark := PlayerO
+		if mark == PlayerO {
+			oppMark = PlayerX
+		}
+		if blockMove := that.findWinningMove(oppMark); blockMove != -1 {
+			return blockMove
+		}
+
+		if that.Board[4] == EmptyCell {
+			return 4 // center
+		}
+
+		for _, corner := range []int{0, 2, 6, 8} {
+			if that.Board[corner] == EmptyCell {
+				return corner
+			}
+		}
+
+		return that.easyStrategy(available)
+	default:
+		return that.easyStrategy(available)
+	}
+}
+
+func (that *Game) easyStrategy(available []int) int {
+	return available[rand.Intn(len(available))] //nolint:gosec // it`s ok
+}
+
+func (that *Game) findWinningMove(mark string) int {
+	for _, combo := range WinCombos {
+		a, b, c := that.Board[combo[0]], that.Board[combo[1]], that.Board[combo[2]]
+		if a == mark && b == mark && c == EmptyCell {
+			return combo[2]
+		}
+		if a == mark && c == mark && b == EmptyCell {
+			return combo[1]
+		}
+		if b == mark && c == mark && a == EmptyCell {
+			return combo[0]
+		}
+	}
+	return -1
 }
