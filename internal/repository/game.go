@@ -19,7 +19,7 @@ type GameRepository interface {
 	CreateOrUpdate(ctx context.Context, game *entity.Game) error
 
 	GetByID(ctx context.Context, id string) (*entity.Game, error)
-	GetWaitingPublicGame(ctx context.Context) (*entity.Game, error)
+	GetOpenPublicGame(ctx context.Context) (*entity.Game, error)
 
 	DeleteByID(ctx context.Context, id string) error
 }
@@ -82,7 +82,7 @@ func (that *gameRepository) GetByID(ctx context.Context, id string) (*entity.Gam
 	return &game, nil
 }
 
-func (that *gameRepository) GetWaitingPublicGame(ctx context.Context) (*entity.Game, error) {
+func (that *gameRepository) GetOpenPublicGame(ctx context.Context) (*entity.Game, error) {
 	log := that.logger.With("method", "GetLastActivePublicGame")
 
 	gameIDs, err := that.client.SMembers(ctx, entity.PublicType).Result()

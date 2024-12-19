@@ -3,6 +3,8 @@ package websocket
 import (
 	"bufio"
 	"context"
+	"crypto/sha1" //nolint: gosec // idk how to fix that
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,8 +14,10 @@ import (
 	"time"
 
 	"github.com/rocketscienceinc/tictactoe-backend/internal/entity"
-	"github.com/rocketscienceinc/tictactoe-backend/internal/pkg"
 )
+
+// Static GUID defined in RFC 6455 for WebSocket.
+const websocketGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 const (
 	headerUpgrade            = "Upgrade"
@@ -113,7 +117,7 @@ func (that *Server) upgradeToWebSocket(ctx context.Context, w http.ResponseWrite
 	}
 
 	wsKey := r.Header.Get(headerSecWebSocketKey)
-	acceptKey := pkg.GenerateAcceptKey(wsKey)
+	acceptKey := that.generateAcceptKey(wsKey)
 
 	w.Header().Set(headerUpgrade, headerWebSocket)
 	w.Header().Set(headerConnection, headerUpgrade)
@@ -185,4 +189,13 @@ func (that *Server) handleMessages(ctx context.Context, bufRW *bufio.ReadWriter)
 			continue
 		}
 	}
+}
+
+// GenerateAcceptKey - generates key for WebSocket handshake.
+func (that *Server) generateAcceptKey(key string) string {
+	h := sha1.New() //nolint: gosec // RFC 6455 requires the use of SHA-1 for WebSocket
+
+	h.Write([]byte(key + websocketGUID))
+
+	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }

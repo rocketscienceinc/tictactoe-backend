@@ -1,4 +1,4 @@
-package service
+package usecase
 
 import (
 	"errors"
@@ -12,6 +12,8 @@ const (
 	difficultyEasy       = "easy"
 	difficultyHard       = "hard"
 	difficultyInvincible = "invincible"
+
+	center = 4
 )
 
 var (
@@ -19,17 +21,17 @@ var (
 	ErrNoAvailableMoves = errors.New("no available moves")
 )
 
-type BotService interface {
+type BotUseCase interface {
 	MakeTurn(game *entity.Game) error
 }
 
-type botService struct{}
+type botUseCase struct{}
 
-func NewBotService() BotService {
-	return &botService{}
+func NewBotUseCase() BotUseCase {
+	return &botUseCase{}
 }
 
-func (that *botService) MakeTurn(game *entity.Game) error {
+func (that *botUseCase) MakeTurn(game *entity.Game) error {
 	var botPlayer *entity.Player
 	for _, player := range game.Players {
 		if player.IsBot() {
@@ -71,7 +73,7 @@ func (that *botService) MakeTurn(game *entity.Game) error {
 	return nil
 }
 
-func (that *botService) getAvailableCells(game *entity.Game) []int {
+func (that *botUseCase) getAvailableCells(game *entity.Game) []int {
 	availableCells := []int{}
 	for i, cell := range game.Board {
 		if cell == entity.EmptyCell {
@@ -81,11 +83,11 @@ func (that *botService) getAvailableCells(game *entity.Game) []int {
 	return availableCells
 }
 
-func (that *botService) easyStrategy(available []int) int {
+func (that *botUseCase) easyStrategy(available []int) int {
 	return available[rand.Intn(len(available))] //nolint:gosec // it's ok
 }
 
-func (that *botService) hardStrategy(game *entity.Game, mark string, available []int) int {
+func (that *botUseCase) hardStrategy(game *entity.Game, mark string, available []int) int {
 	if winMove := that.findWinningMove(game, mark); winMove != -1 {
 		return winMove
 	}
@@ -101,11 +103,34 @@ func (that *botService) hardStrategy(game *entity.Game, mark string, available [
 	return that.easyStrategy(available)
 }
 
-func (that *botService) invincibleStrategy(game *entity.Game, mark string) int {
-	return that.hardStrategy(game, mark, that.getAvailableCells(game))
+func (that *botUseCase) invincibleStrategy(game *entity.Game, mark string) int {
+	if winMove := that.findWinningMove(game, mark); winMove != -1 {
+		return winMove
+	}
+
+	oppMark := entity.PlayerO
+	if mark == entity.PlayerO {
+		oppMark = entity.PlayerX
+	}
+	if blockMove := that.findWinningMove(game, oppMark); blockMove != -1 {
+		return blockMove
+	}
+
+	if game.Board[center] == entity.EmptyCell {
+		return center
+	}
+
+	for _, corner := range []int{0, 2, 6, 8} {
+		if game.Board[corner] == entity.EmptyCell {
+			return corner
+		}
+	}
+
+	availableCells := that.getAvailableCells(game)
+	return that.easyStrategy(availableCells)
 }
 
-func (that *botService) findWinningMove(game *entity.Game, mark string) int {
+func (that *botUseCase) findWinningMove(game *entity.Game, mark string) int {
 	for _, combo := range entity.WinCombos {
 		a, b, c := game.Board[combo[0]], game.Board[combo[1]], game.Board[combo[2]]
 		if a == mark && b == mark && c == entity.EmptyCell {
