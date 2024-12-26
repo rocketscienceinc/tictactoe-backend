@@ -3,8 +3,6 @@ package websocket
 import (
 	"bufio"
 	"context"
-	"crypto/sha1" //nolint: gosec // idk how to fix that
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -14,10 +12,8 @@ import (
 	"time"
 
 	"github.com/rocketscienceinc/tictactoe-backend/internal/entity"
+	"github.com/rocketscienceinc/tictactoe-backend/internal/pkg"
 )
-
-// Static GUID defined in RFC 6455 for WebSocket.
-const websocketGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 const (
 	headerUpgrade            = "Upgrade"
@@ -33,7 +29,7 @@ const (
 type gameUseCase interface {
 	GetOrCreatePlayer(ctx context.Context, playerID string) (*entity.Player, error)
 
-	GetOrCreateGame(ctx context.Context, playerID, gameType, difficulty string) (*entity.Game, error)
+	GetOrCreateGame(ctx context.Context, playerID, gameType string) (*entity.Game, error)
 	GetGameByPlayerID(ctx context.Context, playerID string) (*entity.Game, error)
 	CreateOrJoinToPublicGame(ctx context.Context, playerID, gameType string) (*entity.Game, error)
 	JoinGameByID(ctx context.Context, gameID, playerID string) (*entity.Game, error)
@@ -117,7 +113,7 @@ func (that *Server) upgradeToWebSocket(ctx context.Context, w http.ResponseWrite
 	}
 
 	wsKey := r.Header.Get(headerSecWebSocketKey)
-	acceptKey := that.generateAcceptKey(wsKey)
+	acceptKey := pkg.GenerateAcceptKey(wsKey)
 
 	w.Header().Set(headerUpgrade, headerWebSocket)
 	w.Header().Set(headerConnection, headerUpgrade)
@@ -189,13 +185,4 @@ func (that *Server) handleMessages(ctx context.Context, bufRW *bufio.ReadWriter)
 			continue
 		}
 	}
-}
-
-// GenerateAcceptKey - generates key for WebSocket handshake.
-func (that *Server) generateAcceptKey(key string) string {
-	h := sha1.New() //nolint: gosec // RFC 6455 requires the use of SHA-1 for WebSocket
-
-	h.Write([]byte(key + websocketGUID))
-
-	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }

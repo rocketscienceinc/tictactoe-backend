@@ -115,7 +115,7 @@ func (that *Server) handleNewGame(ctx context.Context, msg *Message, bufrw *bufi
 	}
 
 	if !payloadReq.Game.IsPublic() {
-		game, err = that.gameUseCase.GetOrCreateGame(ctx, payloadReq.Player.ID, payloadReq.Game.Type, payloadReq.Game.Difficulty)
+		game, err = that.gameUseCase.GetOrCreateGame(ctx, payloadReq.Player.ID, payloadReq.Game.Type)
 		if err != nil {
 			log.Error("failed to create or get", "player", err)
 			return that.sendErrorResponse(bufrw, msg.Action, "failed to create a new game")
@@ -466,7 +466,6 @@ func (that *Server) playerReconnected(playerID string) {
 func maskGameDetails(game *entity.Game) *entity.Game {
 	game.Players = nil
 	game.Type = ""
-	game.Difficulty = ""
 	return game
 }
 

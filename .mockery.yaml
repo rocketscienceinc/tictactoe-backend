@@ -1,6 +1,0 @@
-dir: "mocks/{{.PackageName}}"
-packages:
-  "github.com/rocketscienceinc/tictactoe-backend/internal/usecase":
-    interfaces:
-      gameRepoDep:
-      playerRepoDep:

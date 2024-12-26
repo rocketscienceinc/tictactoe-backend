@@ -131,7 +131,7 @@ func TestGameRepository_DeleteByID(t *testing.T) {
 }
 
 func TestGameRepository_GetWaitingPublicGame(t *testing.T) {
-	t.Run("GetOpenPublicGame_Success", func(t *testing.T) {
+	t.Run("GetWaitingPublicGame_Success", func(t *testing.T) {
 		ctx, st := suite.New(t)
 		logger := getLogger()
 
@@ -148,13 +148,13 @@ func TestGameRepository_GetWaitingPublicGame(t *testing.T) {
 		require.NoError(t, err)
 
 		// When: GetWaitingPublicGame is called
-		game, err := gameRepo.GetOpenPublicGame(ctx)
+		game, err := gameRepo.GetWaitingPublicGame(ctx)
 
 		// Then: the retrieved game should match the existing game
 		require.NoError(t, err)
 		require.Equal(t, existingGame.ID, game.ID)
 	})
-	t.Run("GetOpenPublicGame_NotFound", func(t *testing.T) {
+	t.Run("GetWaitingPublicGame_NotFound", func(t *testing.T) {
 		ctx, st := suite.New(t)
 		logger := getLogger()
 
@@ -170,7 +170,7 @@ func TestGameRepository_GetWaitingPublicGame(t *testing.T) {
 		err := gameRepo.CreateOrUpdate(ctx, existingGame)
 		require.NoError(t, err)
 
-		game, err := gameRepo.GetOpenPublicGame(ctx)
+		game, err := gameRepo.GetWaitingPublicGame(ctx)
 
 		// Then: an ErrNoActiveGames error should be returned and no game should be retrieved
 		require.Error(t, err)
