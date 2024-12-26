@@ -334,15 +334,13 @@ func TestGame_BotMakeTurn_EasyDifficulty(t *testing.T) {
 		game.Difficulty = EasyDifficulty
 
 		player := &Player{ID: "player1", Mark: PlayerX, GameID: game.ID}
-		err := game.AddPlayer(player)
-		require.NoError(t, err)
+		game.Players = append(game.Players, player)
 
 		// Add bot player with mark PlayerO
-		err = addBotPlayer(game)
-		require.NoError(t, err)
+		addBotPlayer(game)
 
 		// Simulate player's move
-		err = game.MakeTurn(PlayerX, 0) // Player X moves at cell 0
+		err := game.MakeTurn(PlayerX, 0) // Player X moves at cell 0
 		require.NoError(t, err)
 
 		// Bot makes a move
@@ -369,12 +367,10 @@ func TestGame_BotMakeTurn_HardDifficulty(t *testing.T) {
 		game.Difficulty = HardDifficulty
 
 		player := &Player{ID: "player1", Mark: PlayerX, GameID: game.ID}
-		err := game.AddPlayer(player)
-		require.NoError(t, err)
+		game.Players = append(game.Players, player)
 
 		// Add bot player with mark PlayerO
-		err = addBotPlayer(game)
-		require.NoError(t, err)
+		addBotPlayer(game)
 
 		// Set up board where bot can win by placing at cell 5
 		game.Board = [9]string{
@@ -385,7 +381,7 @@ func TestGame_BotMakeTurn_HardDifficulty(t *testing.T) {
 		game.Turn = PlayerO
 
 		// Bot makes a move
-		err = game.BotMakeTurn()
+		err := game.BotMakeTurn()
 		require.NoError(t, err)
 
 		// Verify bot made the winning move at cell 5
@@ -400,12 +396,10 @@ func TestGame_BotMakeTurn_HardDifficulty(t *testing.T) {
 		game.Difficulty = HardDifficulty
 
 		player := &Player{ID: "player1", Mark: PlayerX, GameID: game.ID}
-		err := game.AddPlayer(player)
-		require.NoError(t, err)
+		game.Players = append(game.Players, player)
 
 		// Add bot player with mark PlayerO
-		err = addBotPlayer(game)
-		require.NoError(t, err)
+		addBotPlayer(game)
 
 		// Set up board where player can win by placing at cell 2
 		game.Board = [9]string{
@@ -416,7 +410,7 @@ func TestGame_BotMakeTurn_HardDifficulty(t *testing.T) {
 		game.Turn = PlayerO
 
 		// Bot makes a move
-		err = game.BotMakeTurn()
+		err := game.BotMakeTurn()
 		require.NoError(t, err)
 
 		// Verify bot blocked at cell 2
@@ -432,12 +426,10 @@ func TestGame_BotMakeTurn_InvincibleDifficulty(t *testing.T) {
 		game.Difficulty = InvincibleDifficulty
 
 		player := &Player{ID: "player1", Mark: PlayerX, GameID: game.ID}
-		err := game.AddPlayer(player)
-		require.NoError(t, err)
+		game.Players = append(game.Players, player)
 
 		// Add bot player with mark PlayerO
-		err = addBotPlayer(game)
-		require.NoError(t, err)
+		addBotPlayer(game)
 
 		// Set up board with center available
 		game.Board = [9]string{
@@ -448,7 +440,7 @@ func TestGame_BotMakeTurn_InvincibleDifficulty(t *testing.T) {
 		game.Turn = PlayerO
 
 		// Bot makes a move
-		err = game.BotMakeTurn()
+		err := game.BotMakeTurn()
 		require.NoError(t, err)
 
 		// Verify bot took the center cell (4)
@@ -462,12 +454,10 @@ func TestGame_BotMakeTurn_InvincibleDifficulty(t *testing.T) {
 		game.Difficulty = InvincibleDifficulty
 
 		player := &Player{ID: "player1", Mark: PlayerX, GameID: game.ID}
-		err := game.AddPlayer(player)
-		require.NoError(t, err)
+		game.Players = append(game.Players, player)
 
 		// Add bot player with mark PlayerO
-		err = addBotPlayer(game)
-		require.NoError(t, err)
+		addBotPlayer(game)
 
 		// Set up board with center occupied by bot
 		game.Board = [9]string{
@@ -478,7 +468,7 @@ func TestGame_BotMakeTurn_InvincibleDifficulty(t *testing.T) {
 		game.Turn = PlayerO
 
 		// Bot makes a move
-		err = game.BotMakeTurn()
+		err := game.BotMakeTurn()
 		require.NoError(t, err)
 
 		// Verify bot took one of the corner cells (0, 2, 6, 8)
@@ -500,12 +490,10 @@ func TestGame_BotMakeTurn_InvincibleDifficulty(t *testing.T) {
 		game.Difficulty = InvincibleDifficulty
 
 		player := &Player{ID: "player1", Mark: PlayerX, GameID: game.ID}
-		err := game.AddPlayer(player)
-		require.NoError(t, err)
+		game.Players = append(game.Players, player)
 
 		// Add bot player with mark PlayerO
-		err = addBotPlayer(game)
-		require.NoError(t, err)
+		addBotPlayer(game)
 
 		// Set up board where player is trying to create a fork
 		game.Board = [9]string{
@@ -516,7 +504,7 @@ func TestGame_BotMakeTurn_InvincibleDifficulty(t *testing.T) {
 		game.Turn = PlayerO
 
 		// Bot makes a move to block the fork
-		err = game.BotMakeTurn()
+		err := game.BotMakeTurn()
 		require.NoError(t, err)
 
 		// Verify bot took cell 2 to block the fork
@@ -530,12 +518,10 @@ func TestGame_BotMakeTurn_InvincibleDifficulty(t *testing.T) {
 		game.Difficulty = InvincibleDifficulty
 
 		player := &Player{ID: "player1", Mark: PlayerX, GameID: game.ID}
-		err := game.AddPlayer(player)
-		require.NoError(t, err)
+		game.Players = append(game.Players, player)
 
 		// Add bot player with mark PlayerO
-		err = addBotPlayer(game)
-		require.NoError(t, err)
+		addBotPlayer(game)
 
 		// Set up board where bot can win by placing at cell 2
 		game.Board = [9]string{
@@ -546,7 +532,7 @@ func TestGame_BotMakeTurn_InvincibleDifficulty(t *testing.T) {
 		game.Turn = PlayerO
 
 		// Bot makes a move
-		err = game.BotMakeTurn()
+		err := game.BotMakeTurn()
 		require.NoError(t, err)
 
 		// Verify bot made the winning move at cell 2
@@ -563,12 +549,10 @@ func TestGame_BotMakeTurn_EasyDifficulty_FullBoard(t *testing.T) {
 		game.Difficulty = EasyDifficulty
 
 		player := &Player{ID: "player1", Mark: PlayerX, GameID: game.ID}
-		err := game.AddPlayer(player)
-		require.NoError(t, err)
+		game.Players = append(game.Players, player)
 
 		// Add bot player with mark PlayerO
-		err = addBotPlayer(game)
-		require.NoError(t, err)
+		addBotPlayer(game)
 
 		// Set up board with one empty cell at position 8
 		game.Board = [9]string{
@@ -579,7 +563,7 @@ func TestGame_BotMakeTurn_EasyDifficulty_FullBoard(t *testing.T) {
 		game.Turn = PlayerO
 
 		// Bot makes a move
-		err = game.BotMakeTurn()
+		err := game.BotMakeTurn()
 		require.NoError(t, err)
 
 		// Verify bot placed at cell 8, game is finished with a tie
@@ -599,11 +583,10 @@ func TestGame_BotMakeTurn_HardDifficulty_AlreadyFinished(t *testing.T) {
 		game.Turn = "" // Ensure Turn is empty when game is finished
 
 		// Add bot player with mark PlayerO
-		err := addBotPlayer(game)
-		require.NoError(t, err)
+		addBotPlayer(game)
 
 		// Bot attempts to make a move
-		err = game.BotMakeTurn()
+		err := game.BotMakeTurn()
 		require.Error(t, err, "Bot should not make a move if the game is already finished")
 		assert.Contains(t, err.Error(), "bot failed to make turn")
 	})
@@ -619,18 +602,17 @@ func TestGame_BotMakeTurn_InvincibleDifficulty_CannotMoveAfterTie(t *testing.T) 
 		game.Turn = "" // Ensure Turn is empty when game is finished
 
 		// Add bot player with mark PlayerO
-		err := addBotPlayer(game)
-		require.NoError(t, err)
+		addBotPlayer(game)
 
 		// Bot attempts to make a move
-		err = game.BotMakeTurn()
+		err := game.BotMakeTurn()
 		require.Error(t, err, "Bot should not make a move after the game ends in a tie")
 		assert.Contains(t, err.Error(), "bot failed to make turn")
 	})
 }
 
 // Helper function to add a bot player to the game.
-func addBotPlayer(game *Game) error {
+func addBotPlayer(game *Game) {
 	botPlayer := NewBotPlayer(game.ID, PlayerO)
-	return game.AddPlayer(botPlayer)
+	game.Players = append(game.Players, botPlayer)
 }

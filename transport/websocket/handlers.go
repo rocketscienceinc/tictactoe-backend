@@ -196,7 +196,7 @@ func (that *Server) handleJoinGame(ctx context.Context, msg *Message, bufrw *buf
 		that.connectionsMutex.RUnlock()
 
 		if !ok {
-			log.Info("failed to find connection")
+			log.Error("failed to find connection")
 			continue
 		}
 

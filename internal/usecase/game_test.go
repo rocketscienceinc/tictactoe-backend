@@ -191,10 +191,18 @@ func TestGameUseCase_GetOrCreateGame(t *testing.T) {
 		mockGameRepo := mockedUseCase.NewMockgameRepoDep(t)
 		useCaseInstance := NewGameUseCase(mockPlayerRepo, mockGameRepo)
 
-		player := &entity.Player{ID: "p3"}
+		player := &entity.Player{ID: "p3", GameID: ""}
+
 		mockPlayerRepo.EXPECT().
 			GetByID(ctx, "p3").
 			Return(player, nil).
+			Once()
+
+		mockPlayerRepo.EXPECT().
+			CreateOrUpdate(ctx, mock.MatchedBy(func(p *entity.Player) bool {
+				return p.ID == "p3" && p.Mark == "X"
+			})).
+			Return(nil).
 			Once()
 
 		mockGameRepo.EXPECT().

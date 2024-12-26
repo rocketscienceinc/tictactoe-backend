@@ -172,24 +172,6 @@ func (that *Game) GetRandomMarks() (string, string) {
 	return PlayerO, PlayerX
 }
 
-func (that *Game) AddPlayer(player *Player) error {
-	if len(that.Players) >= 2 {
-		return apperror.ErrGameAlreadyExists
-	}
-
-	player.GameID = that.ID
-	if len(that.Players) == 0 {
-		player.Mark = PlayerX
-	} else {
-		player.Mark = PlayerO
-	}
-
-	that.Players = append(that.Players, player)
-	that.Status = StatusOngoing
-
-	return nil
-}
-
 func (that *Game) BotMakeTurn() error {
 	botPlayer := that.GetBotPlayer()
 	if botPlayer == nil {

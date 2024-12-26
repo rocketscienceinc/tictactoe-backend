@@ -142,7 +142,7 @@ func (that *gameUseCase) JoinGameByID(ctx context.Context, gameID, playerID stri
 		return nil, fmt.Errorf("failed to retrieve player from storage: %w", err)
 	}
 
-	if player.GameID != gameID {
+	if player.GameID == game.ID {
 		return game, nil
 	}
 
@@ -150,13 +150,15 @@ func (that *gameUseCase) JoinGameByID(ctx context.Context, gameID, playerID stri
 		return nil, fmt.Errorf("%w: game id %s", apperror.ErrGameAlreadyExists, gameID)
 	}
 
-	if err = game.AddPlayer(player); err != nil {
-		return nil, fmt.Errorf("failed to add player to storage: %w", err)
-	}
+	player.GameID = game.ID
+	player.Mark = entity.PlayerO
 
 	if err = that.playerRepo.CreateOrUpdate(ctx, player); err != nil {
 		return nil, fmt.Errorf("failed to update player from storage: %w", err)
 	}
+
+	game.Status = entity.StatusOngoing
+	game.Players = append(game.Players, player)
 
 	if err = that.gameRepo.CreateOrUpdate(ctx, game); err != nil {
 		return nil, fmt.Errorf("failed to update game with player: %w", err)
@@ -192,13 +194,15 @@ func (that *gameUseCase) CreateOrJoinToPublicGame(ctx context.Context, playerID,
 		return nil, fmt.Errorf("%w: game id %s", apperror.ErrGameAlreadyExists, game.ID)
 	}
 
-	if err = game.AddPlayer(player); err != nil {
-		return nil, fmt.Errorf("failed to add player: %w", err)
-	}
+	player.GameID = game.ID
+	player.Mark = entity.PlayerO
 
 	if err = that.playerRepo.CreateOrUpdate(ctx, player); err != nil {
 		return nil, fmt.Errorf("failed to update player from storage: %w", err)
 	}
+
+	game.Status = entity.StatusOngoing
+	game.Players = append(game.Players, player)
 
 	if err = that.gameRepo.CreateOrUpdate(ctx, game); err != nil {
 		return nil, fmt.Errorf("failed to update game with player: %w", err)
@@ -218,16 +222,15 @@ func (that *gameUseCase) createGame(ctx context.Context, gameType, difficulty st
 		game.Difficulty = difficulty
 	}
 
-	if err = game.AddPlayer(player); err != nil {
-		return nil, fmt.Errorf("failed to add player to game: %w", err)
-	}
-
-	if err = that.gameRepo.CreateOrUpdate(ctx, game); err != nil {
-		return nil, fmt.Errorf("failed to update game: %w", err)
-	}
-
+	player.GameID = gameID
+	player.Mark = entity.PlayerX
 	if err = that.playerRepo.CreateOrUpdate(ctx, player); err != nil {
 		return nil, fmt.Errorf("failed to update player from storage: %w", err)
+	}
+
+	game.Players = []*entity.Player{player}
+	if err = that.gameRepo.CreateOrUpdate(ctx, game); err != nil {
+		return nil, fmt.Errorf("failed to update game: %w", err)
 	}
 
 	if game.IsWithBot() {
