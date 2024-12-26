@@ -326,3 +326,311 @@ func TestGame_MakeTurn(t *testing.T) {
 		assert.ErrorIs(t, err, ErrInvalidCell)
 	})
 }
+
+func TestGame_BotMakeTurn_EasyDifficulty(t *testing.T) {
+	t.Run("Bot makes a move in an available cell", func(t *testing.T) {
+		// Given: a new game with easy difficulty and a human player
+		game := NewGame("test-game-easy", WithBotType)
+		game.Difficulty = EasyDifficulty
+
+		player := &Player{ID: "player1", Mark: PlayerX, GameID: game.ID}
+		err := game.AddPlayer(player)
+		require.NoError(t, err)
+
+		// Add bot player with mark PlayerO
+		err = addBotPlayer(game)
+		require.NoError(t, err)
+
+		// Simulate player's move
+		err = game.MakeTurn(PlayerX, 0) // Player X moves at cell 0
+		require.NoError(t, err)
+
+		// Bot makes a move
+		err = game.BotMakeTurn()
+		require.NoError(t, err)
+
+		// Verify that the bot has made a move (any available cell except 0)
+		board := game.Board
+		moveMade := false
+		for i, cell := range board {
+			if i != 0 && cell == PlayerO {
+				moveMade = true
+				break
+			}
+		}
+		assert.True(t, moveMade, "Bot should have made a move on an available cell")
+	})
+}
+
+func TestGame_BotMakeTurn_HardDifficulty(t *testing.T) {
+	t.Run("Bot makes a winning move when possible", func(t *testing.T) {
+		// Given: a game where bot can win
+		game := NewGame("test-game-hard-win", WithBotType)
+		game.Difficulty = HardDifficulty
+
+		player := &Player{ID: "player1", Mark: PlayerX, GameID: game.ID}
+		err := game.AddPlayer(player)
+		require.NoError(t, err)
+
+		// Add bot player with mark PlayerO
+		err = addBotPlayer(game)
+		require.NoError(t, err)
+
+		// Set up board where bot can win by placing at cell 5
+		game.Board = [9]string{
+			PlayerX, PlayerX, EmptyCell,
+			PlayerO, PlayerO, EmptyCell,
+			EmptyCell, EmptyCell, EmptyCell,
+		}
+		game.Turn = PlayerO
+
+		// Bot makes a move
+		err = game.BotMakeTurn()
+		require.NoError(t, err)
+
+		// Verify bot made the winning move at cell 5
+		assert.Equal(t, PlayerO, game.Board[5], "Bot should have placed at cell 5 to win")
+		assert.Equal(t, StatusFinished, game.Status, "Game should be finished after bot wins")
+		assert.Equal(t, PlayerO, game.Winner, "Bot should be the winner")
+	})
+
+	t.Run("Bot blocks the player's winning move", func(t *testing.T) {
+		// Given: a game where the player can win in the next move
+		game := NewGame("test-game-hard-block", WithBotType)
+		game.Difficulty = HardDifficulty
+
+		player := &Player{ID: "player1", Mark: PlayerX, GameID: game.ID}
+		err := game.AddPlayer(player)
+		require.NoError(t, err)
+
+		// Add bot player with mark PlayerO
+		err = addBotPlayer(game)
+		require.NoError(t, err)
+
+		// Set up board where player can win by placing at cell 2
+		game.Board = [9]string{
+			PlayerX, PlayerX, EmptyCell,
+			PlayerO, EmptyCell, EmptyCell,
+			EmptyCell, EmptyCell, EmptyCell,
+		}
+		game.Turn = PlayerO
+
+		// Bot makes a move
+		err = game.BotMakeTurn()
+		require.NoError(t, err)
+
+		// Verify bot blocked at cell 2
+		assert.Equal(t, PlayerO, game.Board[2], "Bot should have blocked at cell 2")
+		assert.Equal(t, StatusOngoing, game.Status, "Game should continue after bot blocks")
+	})
+}
+
+func TestGame_BotMakeTurn_InvincibleDifficulty(t *testing.T) {
+	t.Run("Bot takes the center if available", func(t *testing.T) {
+		// Given: a game where center is available
+		game := NewGame("test-game-invincible-center", WithBotType)
+		game.Difficulty = InvincibleDifficulty
+
+		player := &Player{ID: "player1", Mark: PlayerX, GameID: game.ID}
+		err := game.AddPlayer(player)
+		require.NoError(t, err)
+
+		// Add bot player with mark PlayerO
+		err = addBotPlayer(game)
+		require.NoError(t, err)
+
+		// Set up board with center available
+		game.Board = [9]string{
+			PlayerX, EmptyCell, EmptyCell,
+			EmptyCell, EmptyCell, EmptyCell,
+			EmptyCell, EmptyCell, EmptyCell,
+		}
+		game.Turn = PlayerO
+
+		// Bot makes a move
+		err = game.BotMakeTurn()
+		require.NoError(t, err)
+
+		// Verify bot took the center cell (4)
+		assert.Equal(t, PlayerO, game.Board[4], "Bot should have taken the center cell (4)")
+		assert.Equal(t, PlayerX, game.Turn, "Turn should switch back to PlayerX")
+	})
+
+	t.Run("Bot takes a corner if center is occupied", func(t *testing.T) {
+		// Given: a game where center is occupied
+		game := NewGame("test-game-invincible-corner", WithBotType)
+		game.Difficulty = InvincibleDifficulty
+
+		player := &Player{ID: "player1", Mark: PlayerX, GameID: game.ID}
+		err := game.AddPlayer(player)
+		require.NoError(t, err)
+
+		// Add bot player with mark PlayerO
+		err = addBotPlayer(game)
+		require.NoError(t, err)
+
+		// Set up board with center occupied by bot
+		game.Board = [9]string{
+			PlayerX, EmptyCell, EmptyCell,
+			EmptyCell, PlayerO, EmptyCell,
+			EmptyCell, EmptyCell, EmptyCell,
+		}
+		game.Turn = PlayerO
+
+		// Bot makes a move
+		err = game.BotMakeTurn()
+		require.NoError(t, err)
+
+		// Verify bot took one of the corner cells (0, 2, 6, 8)
+		cornerCells := []int{0, 2, 6, 8}
+		moveMade := false
+		for _, cell := range cornerCells {
+			if game.Board[cell] == PlayerO {
+				moveMade = true
+				break
+			}
+		}
+		assert.True(t, moveMade, "Bot should have taken one of the corner cells")
+		assert.Equal(t, PlayerX, game.Turn, "Turn should switch back to PlayerX")
+	})
+
+	t.Run("Bot prevents player from creating a fork", func(t *testing.T) {
+		// Given: a game where player is attempting to create a fork
+		game := NewGame("test-game-invincible-prevent-fork", WithBotType)
+		game.Difficulty = InvincibleDifficulty
+
+		player := &Player{ID: "player1", Mark: PlayerX, GameID: game.ID}
+		err := game.AddPlayer(player)
+		require.NoError(t, err)
+
+		// Add bot player with mark PlayerO
+		err = addBotPlayer(game)
+		require.NoError(t, err)
+
+		// Set up board where player is trying to create a fork
+		game.Board = [9]string{
+			PlayerX, EmptyCell, EmptyCell,
+			EmptyCell, PlayerO, EmptyCell,
+			EmptyCell, EmptyCell, PlayerX,
+		}
+		game.Turn = PlayerO
+
+		// Bot makes a move to block the fork
+		err = game.BotMakeTurn()
+		require.NoError(t, err)
+
+		// Verify bot took cell 2 to block the fork
+		assert.Equal(t, PlayerO, game.Board[2], "Bot should have placed at cell 2 to prevent fork")
+		assert.Equal(t, StatusOngoing, game.Status, "Game should continue after bot's move")
+	})
+
+	t.Run("Bot makes a winning move when possible", func(t *testing.T) {
+		// Given: a game where bot can win
+		game := NewGame("test-game-invincible-win", WithBotType)
+		game.Difficulty = InvincibleDifficulty
+
+		player := &Player{ID: "player1", Mark: PlayerX, GameID: game.ID}
+		err := game.AddPlayer(player)
+		require.NoError(t, err)
+
+		// Add bot player with mark PlayerO
+		err = addBotPlayer(game)
+		require.NoError(t, err)
+
+		// Set up board where bot can win by placing at cell 2
+		game.Board = [9]string{
+			PlayerO, PlayerO, EmptyCell,
+			PlayerX, PlayerX, EmptyCell,
+			EmptyCell, EmptyCell, EmptyCell,
+		}
+		game.Turn = PlayerO
+
+		// Bot makes a move
+		err = game.BotMakeTurn()
+		require.NoError(t, err)
+
+		// Verify bot made the winning move at cell 2
+		assert.Equal(t, PlayerO, game.Board[2], "Bot should have placed at cell 2 to win")
+		assert.Equal(t, StatusFinished, game.Status, "Game should be finished after bot's winning move")
+		assert.Equal(t, PlayerO, game.Winner, "Bot should be the winner")
+	})
+}
+
+func TestGame_BotMakeTurn_EasyDifficulty_FullBoard(t *testing.T) {
+	t.Run("Bot makes the last move and game ends in a tie", func(t *testing.T) {
+		// Given: a game with one empty cell remaining
+		game := NewGame("test-game-easy-full-board", WithBotType)
+		game.Difficulty = EasyDifficulty
+
+		player := &Player{ID: "player1", Mark: PlayerX, GameID: game.ID}
+		err := game.AddPlayer(player)
+		require.NoError(t, err)
+
+		// Add bot player with mark PlayerO
+		err = addBotPlayer(game)
+		require.NoError(t, err)
+
+		// Set up board with one empty cell at position 8
+		game.Board = [9]string{
+			PlayerX, PlayerO, PlayerX,
+			PlayerO, PlayerX, PlayerO,
+			PlayerO, PlayerX, EmptyCell,
+		}
+		game.Turn = PlayerO
+
+		// Bot makes a move
+		err = game.BotMakeTurn()
+		require.NoError(t, err)
+
+		// Verify bot placed at cell 8, game is finished with a tie
+		assert.Equal(t, PlayerO, game.Board[8], "Bot should have placed at the last available cell (8)")
+		assert.Equal(t, StatusFinished, game.Status, "Game should be finished after the last move")
+		assert.Equal(t, PlayerTie, game.Winner, "Game should be a tie")
+	})
+}
+
+func TestGame_BotMakeTurn_HardDifficulty_AlreadyFinished(t *testing.T) {
+	t.Run("Bot does not make a move if the game is already finished", func(t *testing.T) {
+		// Given: a finished game with Player X as the winner
+		game := NewGame("test-game-hard-already-finished", WithBotType)
+		game.Difficulty = HardDifficulty
+		game.Status = StatusFinished
+		game.Winner = PlayerX
+		game.Turn = "" // Ensure Turn is empty when game is finished
+
+		// Add bot player with mark PlayerO
+		err := addBotPlayer(game)
+		require.NoError(t, err)
+
+		// Bot attempts to make a move
+		err = game.BotMakeTurn()
+		require.Error(t, err, "Bot should not make a move if the game is already finished")
+		assert.Contains(t, err.Error(), "bot failed to make turn")
+	})
+}
+
+func TestGame_BotMakeTurn_InvincibleDifficulty_CannotMoveAfterTie(t *testing.T) {
+	t.Run("Bot does not make a move after the game ends in a tie", func(t *testing.T) {
+		// Given: a game that ended in a tie
+		game := NewGame("test-game-invincible-tie", WithBotType)
+		game.Difficulty = InvincibleDifficulty
+		game.Status = StatusFinished
+		game.Winner = PlayerTie
+		game.Turn = "" // Ensure Turn is empty when game is finished
+
+		// Add bot player with mark PlayerO
+		err := addBotPlayer(game)
+		require.NoError(t, err)
+
+		// Bot attempts to make a move
+		err = game.BotMakeTurn()
+		require.Error(t, err, "Bot should not make a move after the game ends in a tie")
+		assert.Contains(t, err.Error(), "bot failed to make turn")
+	})
+}
+
+// Helper function to add a bot player to the game.
+func addBotPlayer(game *Game) error {
+	botPlayer := NewBotPlayer(game.ID, PlayerO)
+	return game.AddPlayer(botPlayer)
+}
