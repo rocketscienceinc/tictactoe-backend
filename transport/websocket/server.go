@@ -36,10 +36,16 @@ type gameUseCase interface {
 	GetOrCreateGame(ctx context.Context, playerID, gameType, difficulty string) (*entity.Game, error)
 	GetGameByPlayerID(ctx context.Context, playerID string) (*entity.Game, error)
 	CreateOrJoinToPublicGame(ctx context.Context, playerID, gameType string) (*entity.Game, error)
+	CreatePrivateGameWithTwoPlayers(ctx context.Context, player1, player2 *entity.Player) (*entity.Game, error)
 	JoinGameByID(ctx context.Context, gameID, playerID string) (*entity.Game, error)
 	EndGame(ctx context.Context, game *entity.Game) error
 
 	MakeTurn(ctx context.Context, playerID string, cell int) (*entity.Game, error)
+}
+
+type RematchRequest struct {
+	Players   [2]string
+	ExpiresAt time.Time
 }
 
 type Server struct {
@@ -52,6 +58,9 @@ type Server struct {
 	connectionsMutex    sync.RWMutex
 	disconnectedPlayers map[string]time.Time
 	disconnectedMutex   sync.RWMutex
+
+	rematchRequests      map[string]*RematchRequest
+	rematchRequestsMutex sync.Mutex
 }
 
 func New(ctx context.Context, logger *slog.Logger, gameUseCase gameUseCase) *Server {
@@ -62,6 +71,7 @@ func New(ctx context.Context, logger *slog.Logger, gameUseCase gameUseCase) *Ser
 		messageHandlers:     make(map[string]func(context.Context, *Message, *bufio.ReadWriter) error),
 		connections:         make(map[string]*bufio.ReadWriter),
 		disconnectedPlayers: make(map[string]time.Time),
+		rematchRequests:     make(map[string]*RematchRequest),
 	}
 
 	server.messageHandlers["connect"] = server.handleConnect
@@ -69,6 +79,7 @@ func New(ctx context.Context, logger *slog.Logger, gameUseCase gameUseCase) *Ser
 	server.messageHandlers["game:join"] = server.handleJoinGame
 	server.messageHandlers["game:turn"] = server.handleGameTurn
 	server.messageHandlers["game:leave"] = server.handleGameLeave
+	server.messageHandlers["game:rematch"] = server.handleRematch
 
 	go server.monitorDisconnectedPlayers(ctx)
 

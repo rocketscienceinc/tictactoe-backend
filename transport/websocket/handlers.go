@@ -16,6 +16,9 @@ const (
 	gameStatusOpponentOut  = "opponent_out"
 	payloadActionGameLeave = "game:leave"
 	gameStatusLeave        = "leave"
+
+	answerRematchYes = "yes"
+	answerRematchNo  = "no"
 )
 
 func (that *Server) handleConnect(ctx context.Context, msg *Message, bufrw *bufio.ReadWriter) error {
@@ -50,7 +53,7 @@ func (that *Server) handleConnect(ctx context.Context, msg *Message, bufrw *bufi
 	}
 
 	payloadResp := Payload{
-		Player: player,
+		Player: maskPlayerDetails(player),
 	}
 
 	if err = that.sendMessage(bufrw, msg.Action, payloadResp); err != nil {
@@ -73,7 +76,7 @@ func (that *Server) handleExistingGame(ctx context.Context, bufrw *bufio.ReadWri
 	}
 
 	payload := Payload{
-		Player: player,
+		Player: maskPlayerDetails(player),
 		Game:   maskGameDetails(game),
 	}
 
@@ -139,7 +142,7 @@ func (that *Server) handleNewGame(ctx context.Context, msg *Message, bufrw *bufi
 		}
 
 		payloadResp := Payload{
-			Player: player,
+			Player: maskPlayerDetails(player),
 			Game:   maskGameDetails(game),
 		}
 
@@ -201,7 +204,7 @@ func (that *Server) handleJoinGame(ctx context.Context, msg *Message, bufrw *buf
 		}
 
 		payloadResp := Payload{
-			Player: player,
+			Player: maskPlayerDetails(player),
 			Game:   maskGameDetails(game),
 		}
 
@@ -275,7 +278,7 @@ func (that *Server) handleGameTurn(ctx context.Context, msg *Message, bufrw *buf
 		}
 
 		payloadResp := Payload{
-			Player: player,
+			Player: maskPlayerDetails(player),
 			Game:   maskGameDetails(game),
 		}
 
@@ -334,7 +337,7 @@ func (that *Server) handleGameLeave(ctx context.Context, msg *Message, bufRW *bu
 		}
 
 		payloadResp := Payload{
-			Player: player,
+			Player: maskPlayerDetails(player),
 			Game:   maskGameDetails(game),
 		}
 
@@ -368,7 +371,7 @@ func (that *Server) handleGameFinished(action string, game *entity.Game) error {
 		}
 
 		payloadResp := Payload{
-			Player: player,
+			Player: maskPlayerDetails(player),
 			Game:   maskGameDetails(game),
 		}
 
@@ -456,10 +459,224 @@ func (that *Server) handleOpponentOut(ctx context.Context, playerID string) {
 	log.Info("handled opponent out", "gameID", game.ID)
 }
 
+func (that *Server) handleRematch(ctx context.Context, msg *Message, bufRW *bufio.ReadWriter) error {
+	log := that.logger.With("method", "handleRematch")
+
+	var payloadReq Payload
+	if err := json.Unmarshal(msg.Payload, &payloadReq); err != nil {
+		log.Error("failed to unmarshal payload", "error", err)
+	}
+
+	if payloadReq.Player == nil {
+		log.Error("Player is missing in payload")
+		return that.sendErrorResponse(bufRW, msg.Action, "Player is required")
+	}
+
+	if payloadReq.Answer != answerRematchYes && payloadReq.Answer != answerRematchNo {
+		log.Error("invalid answer", "answer", payloadReq.Answer)
+		return that.sendErrorResponse(bufRW, msg.Action, "Answer must be 'yes' or 'no'")
+	}
+
+	player, err := that.gameUseCase.GetOrCreatePlayer(ctx, payloadReq.Player.ID)
+	if err != nil {
+		log.Error("failed to get player", "error", err)
+		return that.sendErrorResponse(bufRW, msg.Action, "Player not found")
+	}
+
+	that.connectionsMutex.Lock()
+	that.connections[player.ID] = bufRW
+	that.connectionsMutex.Unlock()
+
+	if player.LastOpponentID == "" {
+		log.Error("player has no last opponent", "player", player.ID)
+		return that.sendErrorResponse(bufRW, msg.Action, "No last opponent found")
+	}
+
+	opponent, err := that.gameUseCase.GetOrCreatePlayer(ctx, player.LastOpponentID)
+	if err != nil {
+		log.Error("failed to get player", "error", err)
+		return that.sendErrorResponse(bufRW, msg.Action, "failed to retrieve opponent player")
+	}
+
+	switch payloadReq.Answer {
+	case answerRematchYes:
+		return that.processRematchYes(ctx, msg, bufRW, player, opponent)
+	case answerRematchNo:
+		return that.processRematchNo(msg, bufRW, player, opponent)
+	}
+
+	return that.sendErrorResponse(bufRW, msg.Action, "Invalid answer")
+}
+
+func (that *Server) processRematchYes(ctx context.Context, msg *Message, bufRW *bufio.ReadWriter, player, opponent *entity.Player) error {
+	log := that.logger.With("method", "processRematchYes")
+
+	key := makeRematchKey(player.ID, opponent.ID)
+
+	that.rematchRequestsMutex.Lock()
+	defer that.rematchRequestsMutex.Unlock()
+
+	existingReq, ok := that.rematchRequests[key]
+	now := time.Now()
+
+	// If there is an old request, but it is out of date - remove it
+	if ok && now.After(existingReq.ExpiresAt) {
+		delete(that.rematchRequests, key)
+		ok = false
+	}
+
+	// If there is no application yet, this is the first player to say “yes”.
+	if !ok {
+		that.rematchRequests[key] = &RematchRequest{
+			Players:   sortPair(player.ID, opponent.ID),
+			ExpiresAt: now.Add(30 * time.Second), // TTL
+		}
+		ackPayload := Payload{
+			Message: "Rematch request created, waiting for opponent to confirm",
+		}
+		err := that.sendMessage(bufRW, msg.Action, ackPayload)
+		if err != nil {
+			log.Error("failed to send rematch request", "error", err)
+			return that.sendErrorResponse(bufRW, msg.Action, "Failed to confirm opponent")
+		}
+		log.Info("rematch request stored, waiting for second player", "key", key)
+
+		err = that.notifyOpponentRematchWanted(msg.Action, opponent)
+		if err != nil {
+			log.Error("failed to notify opponent rematch wanted", "error", err)
+			return that.sendErrorResponse(bufRW, msg.Action, "Failed to confirm opponent")
+		}
+
+		return nil // exit - wait for the second “yes”.
+	}
+
+	// If the request already exists -> then the other player also said “yes”,
+	// and we can create a new game.
+	delete(that.rematchRequests, key)
+	log.Info("Both players confirmed rematch", "key", key)
+
+	newGame, err := that.createRematchGame(ctx, player, opponent)
+	if err != nil {
+		log.Error("failed to create rematch game", "error", err)
+		return that.sendErrorResponse(bufRW, msg.Action, "Failed to confirm opponent")
+	}
+
+	for _, player = range []*entity.Player{player, opponent} {
+		that.connectionsMutex.RLock()
+		conn, hasConn := that.connections[player.ID]
+		that.connectionsMutex.RUnlock()
+		if !hasConn {
+			log.Warn("connection not found", "player", player.ID)
+			continue
+		}
+
+		resp := Payload{
+			Player: maskPlayerDetails(player),
+			Game:   maskGameDetails(newGame),
+		}
+
+		err = that.sendMessage(conn, msg.Action, resp)
+		if err != nil {
+			log.Error("failed to send rematch request", "error", err)
+			return that.sendErrorResponse(bufRW, msg.Action, "Failed to confirm opponent")
+		}
+		log.Info("rematch request stored, waiting for second player", "key", key)
+		return nil
+	}
+
+	return nil
+}
+
+func (that *Server) notifyOpponentRematchWanted(action string, opponent *entity.Player) error {
+	log := that.logger.With("method", "notifyOpponentRematchWanted")
+
+	that.connectionsMutex.RLock()
+	conn, exists := that.connections[opponent.ID]
+	that.connectionsMutex.RUnlock()
+
+	if !exists {
+		log.Error("Opponent is offline or no connection", "opponentID", opponent.ID)
+	}
+
+	payloadResp := Payload{
+		Message: "Your opponent wants a rematch.",
+	}
+
+	return that.sendMessage(conn, action, payloadResp)
+}
+
+func (that *Server) createRematchGame(ctx context.Context, player1, player2 *entity.Player) (*entity.Game, error) {
+	if player2.IsBot() {
+		game, err := that.gameUseCase.GetOrCreateGame(ctx, player1.ID, entity.WithBotType, entity.EasyDifficulty)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create rematch game with bot: %w", err)
+		}
+		return game, nil
+	}
+
+	game, err := that.gameUseCase.CreatePrivateGameWithTwoPlayers(ctx, player1, player2)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rematch game with two players: %w", err)
+	}
+
+	return game, nil
+}
+
+func (that *Server) processRematchNo(msg *Message, bufRW *bufio.ReadWriter, player, opponent *entity.Player) error {
+	log := that.logger.With("method", "processRematchNo")
+
+	key := makeRematchKey(player.ID, opponent.ID)
+
+	that.rematchRequestsMutex.Lock()
+	defer that.rematchRequestsMutex.Unlock()
+
+	_, ok := that.rematchRequests[key]
+	if !ok {
+		log.Info("no rematch request to decline", "key", key)
+	}
+
+	for _, pl := range []*entity.Player{player, opponent} {
+		that.connectionsMutex.RLock()
+		conn, hasConn := that.connections[pl.ID]
+		that.connectionsMutex.RUnlock()
+		if !hasConn {
+			continue
+		}
+
+		ackPayload := Payload{
+			Message: "Rematch request was declined",
+		}
+		err := that.sendMessage(conn, msg.Action, ackPayload)
+		if err != nil {
+			log.Error("failed to send rematch request", "error", err)
+			return that.sendErrorResponse(bufRW, msg.Action, "Failed to confirm opponent")
+		}
+	}
+
+	return nil
+}
+
+func makeRematchKey(p1, p2 string) string {
+	arr := sortPair(p1, p2)
+	return arr[0] + "|" + arr[1]
+}
+
+func sortPair(a, b string) [2]string {
+	if a < b {
+		return [2]string{a, b}
+	}
+	return [2]string{b, a}
+}
+
 func (that *Server) playerReconnected(playerID string) {
 	that.disconnectedMutex.Lock()
 	defer that.disconnectedMutex.Unlock()
 	delete(that.disconnectedPlayers, playerID)
+}
+
+func maskPlayerDetails(player *entity.Player) *entity.Player {
+	player.LastOpponentID = ""
+	return player
 }
 
 // maskGameDetails hides sensitive details from the game payload.

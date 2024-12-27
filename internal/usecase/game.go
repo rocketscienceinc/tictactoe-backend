@@ -299,10 +299,47 @@ func (that *gameUseCase) MakeTurn(ctx context.Context, playerID string, cell int
 	return game, nil
 }
 
+func (that *gameUseCase) CreatePrivateGameWithTwoPlayers(ctx context.Context, player1, player2 *entity.Player) (*entity.Game, error) {
+	gameID, err := that.generateGameID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate game ID: %w", err)
+	}
+	game := entity.NewGame(gameID, entity.PrivateType)
+
+	player1.GameID = game.ID
+	player2.GameID = game.ID
+
+	player1.Mark = entity.PlayerX
+	player2.Mark = entity.PlayerO
+
+	if err = that.playerRepo.CreateOrUpdate(ctx, player1); err != nil {
+		return nil, fmt.Errorf("failed to update player from storage: %w", err)
+	}
+	if err = that.playerRepo.CreateOrUpdate(ctx, player2); err != nil {
+		return nil, fmt.Errorf("failed to update player with two players: %w", err)
+	}
+
+	game.Players = []*entity.Player{player1, player2}
+
+	game.Status = entity.StatusOngoing
+
+	if err = that.gameRepo.CreateOrUpdate(ctx, game); err != nil {
+		return nil, fmt.Errorf("failed to update game with player: %w", err)
+	}
+
+	return game, nil
+}
+
 func (that *gameUseCase) EndGame(ctx context.Context, game *entity.Game) error {
 	if err := that.gameRepo.DeleteByID(ctx, game.ID); err != nil {
 		return fmt.Errorf("failed to delete game: %w", err)
 	}
+
+	player1 := game.Players[0]
+	player2 := game.Players[1]
+
+	player1.LastOpponentID = player2.ID
+	player2.LastOpponentID = player1.ID
 
 	for _, player := range game.Players {
 		oldMark := player.Mark
