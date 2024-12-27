@@ -7,12 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/rocketscienceinc/tictactoe-backend/internal/apperror"
 	"github.com/rocketscienceinc/tictactoe-backend/internal/entity"
 )
 
-const lettersAndNumbers = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+const lettersAndNumbers = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 type playerRepoDep interface {
 	CreateOrUpdate(ctx context.Context, player *entity.Player) error
@@ -132,6 +133,8 @@ func (that *gameUseCase) GetGameByPlayerID(ctx context.Context, playerID string)
 }
 
 func (that *gameUseCase) JoinGameByID(ctx context.Context, gameID, playerID string) (*entity.Game, error) {
+	gameID = strings.ToUpper(gameID)
+
 	game, err := that.gameRepo.GetByID(ctx, gameID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve game from storage: %w", err)
