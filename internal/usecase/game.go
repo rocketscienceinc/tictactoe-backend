@@ -338,11 +338,13 @@ func (that *gameUseCase) EndGame(ctx context.Context, game *entity.Game) error {
 		return fmt.Errorf("failed to delete game: %w", err)
 	}
 
-	player1 := game.Players[0]
-	player2 := game.Players[1]
+	if len(game.Players) >= 2 {
+		player1 := game.Players[0]
+		player2 := game.Players[1]
 
-	player1.LastOpponentID = player2.ID
-	player2.LastOpponentID = player1.ID
+		player1.LastOpponentID = player2.ID
+		player2.LastOpponentID = player1.ID
+	}
 
 	for _, player := range game.Players {
 		oldMark := player.Mark
