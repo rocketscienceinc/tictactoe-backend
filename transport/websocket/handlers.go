@@ -682,7 +682,6 @@ func maskPlayerDetails(player *entity.Player) *entity.Player {
 // maskGameDetails hides sensitive details from the game payload.
 func maskGameDetails(game *entity.Game) *entity.Game {
 	game.Players = nil
-	game.Type = ""
 	game.Difficulty = ""
 	return game
 }
