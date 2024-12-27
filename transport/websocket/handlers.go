@@ -540,6 +540,13 @@ func (that *Server) processRematchYes(ctx context.Context, msg *Message, bufRW *
 			return that.sendErrorResponse(bufRW, msg.Action, "Failed to confirm opponent")
 		}
 		log.Info("rematch request stored, waiting for second player", "key", key)
+
+		err = that.notifyOpponentRematchWanted(msg.Action, opponent)
+		if err != nil {
+			log.Error("failed to notify opponent rematch wanted", "error", err)
+			return that.sendErrorResponse(bufRW, msg.Action, "Failed to confirm opponent")
+		}
+
 		return nil // exit - wait for the second “yes”.
 	}
 
@@ -568,7 +575,7 @@ func (that *Server) processRematchYes(ctx context.Context, msg *Message, bufRW *
 			Game:   maskGameDetails(newGame),
 		}
 
-		err := that.sendMessage(conn, msg.Action, resp)
+		err = that.sendMessage(conn, msg.Action, resp)
 		if err != nil {
 			log.Error("failed to send rematch request", "error", err)
 			return that.sendErrorResponse(bufRW, msg.Action, "Failed to confirm opponent")
@@ -578,6 +585,24 @@ func (that *Server) processRematchYes(ctx context.Context, msg *Message, bufRW *
 	}
 
 	return nil
+}
+
+func (that *Server) notifyOpponentRematchWanted(action string, opponent *entity.Player) error {
+	log := that.logger.With("method", "notifyOpponentRematchWanted")
+
+	that.connectionsMutex.RLock()
+	conn, exists := that.connections[opponent.ID]
+	that.connectionsMutex.RUnlock()
+
+	if !exists {
+		log.Error("Opponent is offline or no connection", "opponentID", opponent.ID)
+	}
+
+	payloadResp := Payload{
+		Message: "Your opponent wants a rematch.",
+	}
+
+	return that.sendMessage(conn, action, payloadResp)
 }
 
 func (that *Server) createRematchGame(ctx context.Context, player1, player2 *entity.Player) (*entity.Game, error) {
