@@ -411,12 +411,12 @@ func TestGameUseCase_EndGame(t *testing.T) {
 			Once()
 
 		mockPlayerRepo.EXPECT().
-			CreateOrUpdate(ctx, &entity.Player{ID: "p1", GameID: "", Mark: ""}).
+			CreateOrUpdate(ctx, &entity.Player{ID: "p1", GameID: "", Mark: "", LastOpponentID: "p2"}).
 			Return(nil).
 			Once()
 
 		mockPlayerRepo.EXPECT().
-			CreateOrUpdate(ctx, &entity.Player{ID: "p2", GameID: "", Mark: ""}).
+			CreateOrUpdate(ctx, &entity.Player{ID: "p2", GameID: "", Mark: "", LastOpponentID: "p1"}).
 			Return(nil).
 			Once()
 

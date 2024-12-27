@@ -31,10 +31,12 @@ type Message struct {
 }
 
 type Payload struct {
-	Player *entity.Player `json:"player,omitempty"`
-	Game   *entity.Game   `json:"game,omitempty"`
-	Error  string         `json:"error,omitempty"`
-	Cell   *int           `json:"cell,omitempty"`
+	Player  *entity.Player `json:"player,omitempty"`
+	Game    *entity.Game   `json:"game,omitempty"`
+	Error   string         `json:"error,omitempty"`
+	Cell    *int           `json:"cell,omitempty"`
+	Answer  string         `json:"answer,omitempty"`
+	Message string         `json:"message,omitempty"`
 }
 
 func (that *Server) sendMessage(bufrw *bufio.ReadWriter, action string, payload Payload) error {
