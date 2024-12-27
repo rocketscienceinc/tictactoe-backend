@@ -571,8 +571,9 @@ func (that *Server) processRematchYes(ctx context.Context, msg *Message, bufRW *
 		}
 
 		resp := Payload{
-			Player: maskPlayerDetails(player),
-			Game:   maskGameDetails(newGame),
+			Player:  maskPlayerDetails(player),
+			Game:    maskGameDetails(newGame),
+			Message: "Rematch confirmed. New game has started!",
 		}
 
 		err = that.sendMessage(conn, msg.Action, resp)
@@ -581,7 +582,6 @@ func (that *Server) processRematchYes(ctx context.Context, msg *Message, bufRW *
 			return that.sendErrorResponse(bufRW, msg.Action, "Failed to confirm opponent")
 		}
 		log.Info("rematch request stored, waiting for second player", "key", key)
-		return nil
 	}
 
 	return nil
