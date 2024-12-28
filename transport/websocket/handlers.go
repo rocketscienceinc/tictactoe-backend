@@ -346,6 +346,26 @@ func (that *Server) handleGameLeave(ctx context.Context, msg *Message, bufRW *bu
 		if err = that.sendMessage(conn, payloadActionGameLeave, payloadResp); err != nil {
 			log.Error("failed to send game update", "error", err)
 		}
+
+		var opponentID string
+		for _, pl := range game.Players {
+			if pl.ID != player.ID && !pl.IsBot() {
+				opponentID = pl.ID
+				break
+			}
+		}
+
+		if opponentID == "" {
+			continue
+		}
+
+		key := makeRematchKey(player.ID, opponentID)
+
+		that.rematchRequestsMutex.Lock()
+		delete(that.rematchRequests, key)
+		that.rematchRequestsMutex.Unlock()
+
+		log.Info("Rematch request reset after game leave", "key", key)
 	}
 
 	log.Info("Player leaving")
@@ -381,6 +401,32 @@ func (that *Server) handleGameFinished(action string, game *entity.Game) error {
 	}
 
 	log.Info("Game finished", "gameID", game.ID)
+
+	for _, player := range game.Players {
+		if player.IsBot() {
+			continue
+		}
+
+		var opponentID string
+		for _, pl := range game.Players {
+			if pl.ID != player.ID && !pl.IsBot() {
+				opponentID = pl.ID
+				break
+			}
+		}
+
+		if opponentID == "" {
+			continue
+		}
+
+		key := makeRematchKey(player.ID, opponentID)
+
+		that.rematchRequestsMutex.Lock()
+		delete(that.rematchRequests, key)
+		that.rematchRequestsMutex.Unlock()
+
+		log.Info("Rematch request reset after game finish", "key", key)
+	}
 
 	return nil
 }
@@ -508,7 +554,7 @@ func (that *Server) handleRematch(ctx context.Context, msg *Message, bufRW *bufi
 	return that.sendErrorResponse(bufRW, msg.Action, "Invalid answer")
 }
 
-func (that *Server) processRematchYes(ctx context.Context, msg *Message, bufRW *bufio.ReadWriter, player, opponent *entity.Player) error {
+func (that *Server) processRematchYes(ctx context.Context, msg *Message, bufRW *bufio.ReadWriter, player, opponent *entity.Player) error { //nolint: cyclop, lll // it's ok //ToDO: Need refactoring
 	log := that.logger.With("method", "processRematchYes")
 
 	key := makeRematchKey(player.ID, opponent.ID)
@@ -529,11 +575,16 @@ func (that *Server) processRematchYes(ctx context.Context, msg *Message, bufRW *
 	if !ok {
 		that.rematchRequests[key] = &RematchRequest{
 			Players:   sortPair(player.ID, opponent.ID),
-			ExpiresAt: now.Add(30 * time.Second), // TTL
+			ExpiresAt: now.Add(10 * time.Second), // TTL
+			Responses: make(map[string]bool),
 		}
+
+		that.rematchRequests[key].Responses[player.ID] = true
+
 		ackPayload := Payload{
 			Message: "Rematch request created, waiting for opponent to confirm",
 		}
+
 		err := that.sendMessage(bufRW, msg.Action, ackPayload)
 		if err != nil {
 			log.Error("failed to send rematch request", "error", err)
@@ -548,6 +599,44 @@ func (that *Server) processRematchYes(ctx context.Context, msg *Message, bufRW *
 		}
 
 		return nil // exit - wait for the second “yes”.
+	}
+
+	if existingReq.Responses[player.ID] {
+		payloadReq := Payload{
+			Message: "player already responded to rematch request",
+		}
+
+		log.Warn("player already responded to rematch request", "playerID", player.ID)
+
+		return that.sendMessage(bufRW, msg.Action, payloadReq)
+	}
+
+	existingReq.Responses[player.ID] = true
+
+	if len(existingReq.Responses) < 2 {
+		ackPayload := Payload{
+			Message: "Rematch confirmed, waiting for opponent to confirm",
+		}
+		err := that.sendMessage(bufRW, msg.Action, ackPayload)
+		if err != nil {
+			log.Error("failed to send rematch confirmation", "error", err)
+			return that.sendErrorResponse(bufRW, msg.Action, "Failed to confirm opponent")
+		}
+		log.Info("rematch confirmation sent, waiting for opponent", "key", key)
+		return nil
+	}
+
+	if player.GameID != "" || opponent.GameID != "" {
+		log.Info("One of the players is already in a game, cannot start rematch", "playerID", player.ID, "opponentID", opponent.ID)
+		notifyPayload := Payload{
+			Message: "Cannot start rematch: Opponent is currently in another game.",
+		}
+		err := that.sendMessage(bufRW, msg.Action, notifyPayload)
+		if err != nil {
+			log.Error("failed to send opponent busy message", "error", err)
+			return that.sendErrorResponse(bufRW, msg.Action, "Failed to notify player")
+		}
+		return nil
 	}
 
 	// If the request already exists -> then the other player also said “yes”,
@@ -598,10 +687,9 @@ func (that *Server) notifyOpponentRematchWanted(action string, player, opponent 
 		log.Error("Opponent is offline or no connection", "opponentID", opponent.ID)
 	}
 
-	if opponent.GameID != "" {
-
+	if player.GameID != "" {
 		payloadResp := Payload{
-			Message: "Player in game",
+			Message: "Cannot send rematch request: Opponent is currently in another game.",
 		}
 
 		log.Info("Opponent is already in a game, cannot send rematch request", "opponentID", opponent.ID)
@@ -662,6 +750,11 @@ func (that *Server) processRematchNo(msg *Message, bufRW *bufio.ReadWriter, play
 			log.Error("failed to send rematch request", "error", err)
 			return that.sendErrorResponse(bufRW, msg.Action, "Failed to confirm opponent")
 		}
+	}
+
+	if ok {
+		delete(that.rematchRequests, key)
+		log.Info("Rematch request deleted after decline", "key", key)
 	}
 
 	return nil

@@ -46,6 +46,7 @@ type gameUseCase interface {
 type RematchRequest struct {
 	Players   [2]string
 	ExpiresAt time.Time
+	Responses map[string]bool
 }
 
 type Server struct {

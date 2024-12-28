@@ -62,7 +62,7 @@ func RunApp(logger *slog.Logger, conf *config.Config) error {
 		Handler:      mux,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  30 * time.Second,
+		IdleTimeout:  5 * time.Second,
 	}
 
 	go func() {
